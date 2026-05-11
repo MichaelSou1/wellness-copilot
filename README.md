@@ -144,6 +144,95 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
   - 路由分布、工具调用分布
 - 会话结束自动导出：`reports/latest_metrics.json`
 
+## 端到端输出质量评测
+
+除 RAG 召回率外，本项目额外提供针对**最终回答质量**的端到端评测管线，覆盖路由正确性、安全性与个性化等维度。
+
+### 评测架构
+
+两层互补：
+
+| 层 | 方法 | 特点 |
+|---|---|---|
+| **确定性断言** | `must_contain` / `must_not_contain` 关键词规则 | 零 LLM 成本，优先执行；覆盖安全硬限制（禁忌词）和就医引导 |
+| **LLM-as-Judge** | 独立第三方模型多维评分（1–5 分） | 与 agent 使用不同模型提供商，避免自评膨胀 |
+
+Judge 提示词内置校准约束（真实回答集中在 3–4 分区间，5 分须无可挑剔），并对伤病冲突建议强制打 safety=1。
+
+### 评测数据集
+
+`eval/output_eval_dataset.jsonl`：30 条有代表性样本，覆盖 8 类场景：
+
+| 类别 | 数量 | 说明 |
+|---|---|---|
+| `nutrition` | 4 | 蛋白质计算、极端低卡、补剂等 |
+| `training` | 4 | 力量训练计划、TDEE、伤病训练 |
+| `wellness` | 3 | 睡眠/压力/倦怠干预 |
+| `multi_expert` | 4 | 需要多专家协作的复合问题 |
+| `safety_critical` | 5 | ACL/伤病、心率异常等高风险场景 |
+| `multi_turn` | 5 | 多轮上下文（如第一轮透露过敏/伤病，第二轮问相关建议） |
+| `chitchat_boundary` | 3 | 寒暄与能力边界澄清 |
+| `refusal_scope` | 2 | 越权诊断拒绝场景 |
+
+### 最新评测结果（2026-05-11）
+
+```
+Overall avg score  : 4.59 / 5.00
+Assertion pass rate: 85.3%  (87 / 102)
+Routing accuracy   : 93.3%  (28 / 30)
+```
+
+| 维度 | 得分 |
+|---|---|
+| relevance（切题性） | 5.000 |
+| coherence（连贯性） | 4.967 |
+| completeness（完整性） | 4.567 |
+| safety（安全性） | 4.767 |
+| personalization（个性化） | 3.667 |
+
+| 类别 | 均分 |
+|---|---|
+| multi_expert | 4.75 |
+| nutrition | 4.70 |
+| multi_turn | 4.60 |
+| safety_critical | 4.60 |
+| wellness | 4.60 |
+| training | 4.55 |
+| chitchat_boundary | 4.47 |
+| refusal_scope | 4.30 |
+
+personalization 分低于其他维度，是当前主要优化方向（要求回答代入画像具体数值而非给通用建议）。
+
+### 运行评测
+
+```bash
+# 完整运行（全 30 条 + LLM judge）
+python scripts/evaluate_output.py
+
+# 仅跑断言 + 路由（无 LLM 成本，快速冒烟）
+python scripts/evaluate_output.py --no-judge
+
+# 只跑指定样本
+python scripts/evaluate_output.py --samples safety_001,safety_004
+
+# 从已有报告中只重跑 bad case（assertion_pass=False 或 safety≤2），其余结果保留
+python scripts/evaluate_output.py \
+  --rerun reports/output_eval_report.json \
+  --rerun-bad
+```
+
+Judge 使用独立的 LLM，通过环境变量配置（与 agent 分离）：
+
+```ini
+JUDGE_BASE_URL=https://your-judge-endpoint/v1
+JUDGE_API_KEY=your_judge_key
+JUDGE_MODEL=deepseek-v3-2-251201
+```
+
+输出：`reports/output_eval_report.json`，包含每条样本的断言结果、路由命中、多维评分、safety warnings 和 low_scorers 列表。
+
+---
+
 ## 快速开始
 
 1. 配置环境变量
@@ -520,9 +609,12 @@ Health-Guide-Agent/
 ├── knowledge_base/                  # 分层 RAG 语料
 ├── reports/                         # 评测 & 会话指标导出
 ├── eval/                            # 评测数据集
+│   ├── rag_eval_dataset_v2.jsonl    # RAG 召回评测集（506 条）
+│   └── output_eval_dataset.jsonl   # 端到端输出质量评测集（30 条，8 类场景）
 ├── scripts/                         # 索引构建 / 评测 / smoke 测试
 │   ├── build_rag_index.py
 │   ├── evaluate_rag.py
+│   ├── evaluate_output.py           # 端到端输出质量评测（断言 + LLM-as-Judge + --rerun-bad）
 │   ├── generate_eval_dataset.py
 │   ├── smoke_coreference.py         # 多轮指代消解端到端
 │   ├── smoke_dynamic_replan.py      # ReplanJudge 元 LLM 判官
