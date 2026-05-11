@@ -1,31 +1,57 @@
 from typing import TypedDict, Annotated, List, Dict
-import operator
 from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 
 
-def _merge_dict(a: Dict[str, str], b: Dict[str, str]) -> Dict[str, str]:
-    return {**a, **b}
+RESET_SENTINEL = "__RESET__"
+
+
+def _turn_dict(a: Dict[str, str], b: Dict[str, str]) -> Dict[str, str]:
+    """Merge dict, with a reset sentinel.
+
+    When the incoming dict contains key ``__RESET__`` (any value), the
+    accumulated state is dropped and replaced by the remaining keys of the
+    incoming dict. Used by TurnStart to clear stale per-turn entries.
+    """
+    if not isinstance(b, dict):
+        return a or {}
+    if RESET_SENTINEL in b:
+        return {k: v for k, v in b.items() if k != RESET_SENTINEL}
+    return {**(a or {}), **b}
+
+
+def _turn_list(a: List[str], b: List[str]) -> List[str]:
+    """Append list, with a reset sentinel as the first element."""
+    if isinstance(b, list) and b and b[0] == RESET_SENTINEL:
+        return list(b[1:])
+    return (a or []) + (b or [])
+
+
+def _turn_int(a: int, b) -> int:
+    """Add ints, except a tuple ``(__RESET__, value)`` resets to ``value``."""
+    if isinstance(b, tuple) and b and b[0] == RESET_SENTINEL:
+        return int(b[1]) if len(b) > 1 else 0
+    return int(a or 0) + int(b or 0)
 
 
 def _take_last_str(a: str, b: str) -> str:
-    # Always take the latest write, including explicit empty-string clears.
-    # (Old semantics of "keep old when b is falsy" prevented clearing
-    # replan_request/replan_context after consumption.)
     return b
 
 
 class AgentState(TypedDict, total=False):
-    messages: Annotated[List[AnyMessage], operator.add]
+    # add_messages dedupes by id and honors RemoveMessage — required by TurnStart
+    # when it summarizes / drops old messages from long sessions.
+    messages: Annotated[List[AnyMessage], add_messages]
     # 本轮路由的专家列表（支持多专家并行）
     next: List[str]
     profile_user_id: str
-    # 并行执行时各专家写入，用 operator.add 合并
-    last_tools: Annotated[List[str], operator.add]
-    retrieval_hits: Annotated[int, operator.add]
+    # 并行执行时各专家写入；reset 触发于 TurnStart
+    last_tools: Annotated[List[str], _turn_list]
+    retrieval_hits: Annotated[int, _turn_int]
     # 各专家本轮回答，key=专家名，value=回答文本
-    expert_responses: Annotated[Dict[str, str], _merge_dict]
-    # 共享 scratchpad：各专家给协作伙伴的精简要点（跨轮持久化）
-    agent_notes: Annotated[Dict[str, str], _merge_dict]
+    expert_responses: Annotated[Dict[str, str], _turn_dict]
+    # 共享 scratchpad：turn-scoped（TurnStart 每轮清空，避免上轮残留污染 Critic）
+    agent_notes: Annotated[Dict[str, str], _turn_dict]
     # Aggregator 产出的草稿；Critic 审核后才落到 messages
     draft_answer: Annotated[str, _take_last_str]
     # Critic 审核记录（用于可观测性）
@@ -43,3 +69,5 @@ class AgentState(TypedDict, total=False):
     # QueryRewriter 改写后的独立问题；解决多轮指代消解
     # （Planner/Judge/Aggregator/Critic 优先用这个而非最新 HumanMessage）
     contextualized_query: Annotated[str, _take_last_str]
+    # 长历史压缩后的摘要（TurnStart 写入，作为 SystemMessage 注入 messages）
+    history_summary: Annotated[str, _take_last_str]

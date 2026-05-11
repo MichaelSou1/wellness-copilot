@@ -2,6 +2,7 @@
 
 基于 LangGraph 的**多 Agent 健康管理系统**，采用 **Plan-and-Execute + 动态 Replan + 安全审核** 的协作架构：
 
+- 多轮会话上下文管理（TurnStart：轮边界清理 + 长历史摘要压缩 + 跨进程会话恢复）
 - 多轮指代消解（QueryRewriter）
 - 纯 LLM 任务规划（Planner，无关键词硬编码）
 - 顺序执行 + 共享 scratchpad（专家之间能看到彼此要点）
@@ -15,7 +16,8 @@
 
 ```mermaid
 flowchart TD
-    User([用户消息]) --> QR[QueryRewriter<br/>多轮指代消解]
+    User([用户消息]) --> TS[TurnStart<br/>轮边界清理 + 长历史摘要]
+    TS --> QR[QueryRewriter<br/>多轮指代消解]
     QR -->|contextualized_query| Planner[Planner<br/>纯 LLM 决策]
     Planner -->|plan: ordered list| Dispatcher{Dispatcher}
 
@@ -29,21 +31,25 @@ flowchart TD
     Critic --> Out([最终回答])
 
     %% 共享 scratchpad（侧通道）
-    Expert -. agent_notes .-> Scratchpad[(共享 scratchpad)]
+    Expert -. agent_notes .-> Scratchpad[(共享 scratchpad<br/>turn-scoped)]
     Scratchpad -. peer notes .-> Expert
     Scratchpad -. notes .-> Critic
+
+    %% 长期持久化
+    TS -. RemoveMessage + summary .-> History[(messages 历史<br/>SqliteSaver checkpoint)]
+    History -. recent tail + summary .-> QR
 
     classDef meta fill:#fff4e6,stroke:#f59f00,stroke-width:1px;
     classDef ctrl fill:#e7f5ff,stroke:#1c7ed6,stroke-width:1px;
     classDef expert fill:#f3f0ff,stroke:#7048e8,stroke-width:1px;
     classDef store fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:3 3;
-    class QR,Planner,Aggregator,Critic ctrl;
+    class TS,QR,Planner,Aggregator,Critic ctrl;
     class Judge meta;
     class Expert expert;
-    class Scratchpad store;
+    class Scratchpad,History store;
 ```
 
-> 实线 = 控制流；虚线 = 共享 scratchpad 侧通道；Replan 路径**不经过 QueryRewriter**，保证同一用户轮次的 contextualized_query 稳定。
+> 实线 = 控制流；虚线 = 状态侧通道。Replan 路径**直接 Dispatcher → Planner**，不再经过 TurnStart / QueryRewriter——否则会清掉本轮已积累的 plan/scratchpad，且 contextualized_query 在同一用户轮内必须稳定。
 
 ## 核心能力
 
@@ -51,7 +57,8 @@ flowchart TD
 
 | 节点 | 角色 | 关键设计 |
 | --- | --- | --- |
-| **QueryRewriter** | 多轮指代消解 | 把"那个怎么吃""再练一次行吗"改写成自包含问题；首轮 passthrough 不调 LLM |
+| **TurnStart** | 轮边界清理 + 上下文压缩 | 重置 turn-scoped 字段（plan/executed/scratchpad/tool 计数/replan_*）；当消息数 >20 时用 LLM 把头部历史压缩为摘要，发 `RemoveMessage` 删除原文、注入稳定 id 的 SystemMessage |
+| **QueryRewriter** | 多轮指代消解 | 把"那个怎么吃""再练一次行吗"改写成自包含问题；首轮 passthrough 不调 LLM；能读取 TurnStart 注入的历史摘要 |
 | **Planner** | 任务规划 | 纯 LLM 决策（已删除关键词硬编码）；按 Trainer→Nutritionist→Wellness→General 推荐顺序排序；replan 模式追加专家时不重复已执行角色 |
 | **Dispatcher** | 顺序执行 | 从 `plan` 头部出列，appending 到 `executed`；处理 replan 请求（带 `REPLAN_CAP=2` 限制防止无限循环） |
 | **Trainer** | 力量训练教练 | `calculate_tdee` + `retrieve_trainer_knowledge` + 画像读写 |
@@ -73,7 +80,26 @@ flowchart TD
 - `REPLAN_CAP=2` 防止无限循环（在 Dispatcher 层强制）
 - 之所以用独立 judge 节点而非让专家自评：专家自评对 prompt 遵循依赖太高，独立 judge 更可靠
 
-### 2) 个性化画像（长期记忆）
+### 2) 多轮会话上下文管理
+
+LangGraph 的默认 reducer（`operator.add` / 字典 merge）在 SqliteSaver 持久化下会**永远累加**，多轮场景下会出现三类问题——本项目通过 `TurnStart` 节点 + 自定义 reducer 统一治理：
+
+| 问题 | 原因 | 处理 |
+| --- | --- | --- |
+| 上轮 scratchpad / 工具计数残留 | `agent_notes / expert_responses / last_tools / retrieval_hits` 跨轮累加 | 自定义 reducer 识别 `__RESET__` 哨兵；TurnStart 每轮发清空信号 |
+| `plan / executed / replan_count` 不重置 | 同上 | TurnStart 写入空值；replan 路径**绕过** TurnStart 以保留同轮状态 |
+| 历史无限增长，prompt 越塞越大 | `messages` 走 `operator.add` 永不收敛 | 切换到 `add_messages` reducer；TurnStart 在消息数 >20 时把头部折叠为中文摘要、发 `RemoveMessage` 删除原文、注入 `id=__history_summary__` 的 SystemMessage（下次压缩按 id 原地替换不会堆积） |
+| 跨进程重启丢失会话 | 每次启动新建随机 `thread_id`，SqliteSaver 实际未被复用 | `session_store.json` 按 `user_id` 记录上次 `thread_id`，启动时提示恢复 |
+
+关键阈值（`health_guide/agents/turn_start.py`）：
+
+- `MAX_MESSAGES_BEFORE_SUMMARY = 20`：超过即触发摘要压缩
+- `KEEP_RECENT_MESSAGES = 8`：保留最近 8 条原文不压缩
+- 摘要本身参与下一次压缩的输入（增量合并），不会丢失早期事实
+
+QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮指代消解仍然可用。
+
+### 3) 个性化画像（长期记忆）
 
 - 每个用户通过 `user_id` 绑定画像
 - 画像存储于 `profile_store.json`
@@ -81,7 +107,7 @@ flowchart TD
   - `get_user_profile`
   - `update_user_profile`
 
-### 3) RAG 知识增强
+### 4) RAG 知识增强
 
 - 本地知识库目录：`knowledge_base/`
 - 分层路由：`shared + agent 私有库`
@@ -108,7 +134,7 @@ flowchart TD
 - 多知识库实例共享同一份模型权重（module-level cache），无重复加载开销
 - 通过环境变量可调 `batch_size / top_k / device`
 
-### 4) 可观测评估
+### 5) 可观测评估
 
 - 每轮记录到 `observability.db`
 - 指标：
@@ -237,7 +263,7 @@ python scripts/download_knowledge_corpus.py --force
 python main.py
 ```
 
-启动后先输入 `User ID`，即可绑定个人画像并跨会话复用。
+启动后先输入 `User ID`，即可绑定个人画像并跨会话复用。若 `session_store.json` 里记录了该用户上次的 `thread_id`，会提示是否继续上次会话（Enter 继续 / `n` 新建 / 粘贴自定义 `thread_id`）——配合 `checkpoints.db`（SqliteSaver）实现跨进程的对话恢复。
 
 ## 离线 Embedding 预构建
 
@@ -487,7 +513,9 @@ PDF 处理细节：
 
 ```
 Health-Guide-Agent/
-├── main.py                          # 入口：thread_id + user_id + 评估指标导出
+├── main.py                          # 入口：thread_id 恢复/新建 + user_id + 评估指标导出
+├── session_store.json               # user_id -> 上次 thread_id 映射（自动生成）
+├── checkpoints.db                   # SqliteSaver 持久化的 LangGraph checkpoint
 ├── requirements.txt
 ├── knowledge_base/                  # 分层 RAG 语料
 ├── reports/                         # 评测 & 会话指标导出
@@ -501,8 +529,8 @@ Health-Guide-Agent/
 │   ├── smoke_plan_execute.py        # Planner → Dispatcher → 顺序专家
 │   └── smoke_critic_scratchpad.py   # Critic + 共享 scratchpad
 └── health_guide/
-    ├── graph.py                     # LangGraph 拓扑（QueryRewriter → Planner → Dispatcher → 专家 → ReplanJudge → ... → Aggregator → Critic）
-    ├── state.py                     # AgentState (plan/executed/agent_notes/contextualized_query/replan_*)
+    ├── graph.py                     # LangGraph 拓扑（TurnStart → QueryRewriter → Planner → Dispatcher → 专家 → ReplanJudge → ... → Aggregator → Critic）
+    ├── state.py                     # AgentState + 自定义 reducer（__RESET__ 哨兵 / add_messages / take-last）
     ├── llm.py                       # 所有节点共用一个 ChatOpenAI 实例
     ├── tools.py                     # RAG 工具 + 画像工具 + calculate_tdee
     ├── rag.py                       # 两阶段检索
@@ -510,6 +538,7 @@ Health-Guide-Agent/
     ├── observability.py             # 路由/工具/时延/引用率 指标
     ├── config.py                    # .env 解析
     └── agents/
+        ├── turn_start.py            # 轮边界清理 + 长历史 LLM 摘要压缩（RemoveMessage + 稳定 id SystemMessage）
         ├── query_rewriter.py        # 多轮指代消解 + 共享 get_user_question
         ├── planner.py               # 纯 LLM 规划（fresh / replan 双模式）
         ├── dispatcher.py            # 顺序执行 + replan 触发 + cap

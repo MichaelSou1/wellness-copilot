@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .state import AgentState
+from .agents.turn_start import turn_start_node
 from .agents.query_rewriter import query_rewriter_node
 from .agents.planner import planner_node
 from .agents.dispatcher import dispatcher_node
@@ -41,6 +42,7 @@ def _route_after_dispatch(state: AgentState):
 
 workflow = StateGraph(AgentState)
 
+workflow.add_node("TurnStart", turn_start_node)
 workflow.add_node("QueryRewriter", query_rewriter_node)
 workflow.add_node("Planner", planner_node)
 workflow.add_node("Dispatcher", dispatcher_node)
@@ -52,10 +54,12 @@ workflow.add_node("ReplanJudge", replan_judge_node)
 workflow.add_node("Aggregator", aggregator_node)
 workflow.add_node("Critic", critic_node)
 
-# 入口先经 QueryRewriter 解决多轮指代，再交给 Planner。
-# 注意：replan 路径直接 Dispatcher → Planner，不会再触发 QueryRewriter，
-# 因为同一轮内 contextualized_query 已经稳定。
-workflow.set_entry_point("QueryRewriter")
+# 入口先经 TurnStart 做轮边界清理 + 长历史摘要压缩，
+# 再经 QueryRewriter 解决多轮指代，最后交给 Planner。
+# 注意：replan 路径直接 Dispatcher → Planner，不会再触发 TurnStart/QueryRewriter，
+# 因为同一轮内 contextualized_query 已经稳定，且不能重复清理本轮状态。
+workflow.set_entry_point("TurnStart")
+workflow.add_edge("TurnStart", "QueryRewriter")
 workflow.add_edge("QueryRewriter", "Planner")
 workflow.add_edge("Planner", "Dispatcher")
 

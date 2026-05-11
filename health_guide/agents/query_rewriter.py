@@ -25,6 +25,7 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
+from .turn_start import HISTORY_SUMMARY_ID
 
 from ..llm import extract_text_content, llm
 
@@ -63,7 +64,11 @@ def _format_history(messages, latest_human_idx: int) -> str:
     lines = []
     for msg in messages[:latest_human_idx]:
         role = getattr(msg, "type", None)
-        if role == "human" or isinstance(msg, HumanMessage):
+        # Surface the compressed-history summary so coreference resolution
+        # can reach back into pruned turns.
+        if getattr(msg, "id", None) == HISTORY_SUMMARY_ID:
+            tag = "历史摘要"
+        elif role == "human" or isinstance(msg, HumanMessage):
             tag = "用户"
         elif role == "ai" or isinstance(msg, AIMessage):
             tag = "助手"

@@ -1,21 +1,64 @@
-import uuid
+import json
 import os
 import time
+import uuid
+from pathlib import Path
 from langchain_core.messages import HumanMessage
 from health_guide.graph import graph
 from health_guide.llm import extract_text_content
 from health_guide.observability import ObservabilityTracker, TurnRecord
 
+SESSION_STORE_PATH = Path(os.environ.get("SESSION_STORE_PATH", "session_store.json"))
+
+
+def _load_session_store() -> dict:
+    try:
+        return json.loads(SESSION_STORE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_session_store(store: dict) -> None:
+    try:
+        SESSION_STORE_PATH.write_text(
+            json.dumps(store, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def _resolve_thread_id(user_id: str) -> str:
+    """Resume the user's last thread or start a new one.
+
+    The checkpointer (SqliteSaver -> checkpoints.db) persists the full
+    conversation across runs, but only if we hand it the same thread_id.
+    `session_store.json` maps user_id -> last thread_id so the user can
+    pick "continue" instead of pasting a UUID.
+    """
+    store = _load_session_store()
+    last = store.get(user_id)
+    if last:
+        choice = input(
+            f"检测到上次会话 thread_id={last[:8]}…，输入 [Enter]=继续 / n=新建 / 粘贴一个 thread_id 切换： "
+        ).strip()
+        if not choice:
+            return last
+        if choice.lower() in ("n", "new"):
+            return str(uuid.uuid4())
+        return choice
+    return str(uuid.uuid4())
+
+
 def main():
-    # 配置 Checkpoint 的 thread_id
-    # 使用 UUID 生成唯一的会话 ID，这样每次运行都是新的会话，
-    # 或者固定一个 ID 以测试持久化记忆 (由于目前是 :memory:，重启后记忆会丢失)
-    thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
     tracker = ObservabilityTracker()
 
     user_id = input("User ID (默认 default_user): ").strip().lstrip("﻿") or "default_user"
     os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+
+    thread_id = _resolve_thread_id(user_id)
+    config = {"configurable": {"thread_id": thread_id}}
+    print(f"[session] user={user_id} thread={thread_id}")
 
     print("=== 开始运行健康管理 Agent 团队 ===")
     print("输入 'q' 或 'exit' 退出对话。\n")
@@ -30,7 +73,7 @@ def main():
 
         if not user_input:
             continue
-            
+
         if user_input.lower() in ["q", "quit", "exit"]:
             print("Goodbye!")
             break
@@ -92,6 +135,9 @@ def main():
                     routes = value["executed"]
                     print(f"[Plan 已执行]: {', '.join(routes)}")
 
+                if "history_summary" in value and value["history_summary"]:
+                    print("[TurnStart] 已压缩较早历史为摘要（保留最近 8 条原文）")
+
                 if "next" in value:
                     next_val = value["next"]
                     if isinstance(next_val, list):
@@ -99,6 +145,11 @@ def main():
                             print(f"[Dispatch -> {next_val[0]}]")
                     else:
                         print(f"[Dispatch -> {next_val}]")
+
+        # Persist thread for resume on next launch (after at least one turn).
+        store = _load_session_store()
+        store[user_id] = thread_id
+        _save_session_store(store)
 
         route = ",".join(r for r in routes if r != "FINISH") or "FINISH"
 
