@@ -2,12 +2,14 @@ from ..tools import retrieve_nutritionist_knowledge, get_user_profile, update_us
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..profile_store import get_user_profile as get_profile_from_store, profile_to_prompt_text
+from ._scratchpad import format_peer_notes, build_scratchpad_note
 
-def _build_nutritionist_agent(user_id: str):
+def _build_nutritionist_agent(user_id: str, peer_notes_text: str):
     profile_text = profile_to_prompt_text(get_profile_from_store(user_id))
     system_prompt = (
         "你是膳食营养师。"
         f"当前用户画像：{profile_text}。"
+        f"{peer_notes_text}"
         "只要用户在问饮食/营养建议，必须先调用一次 retrieve_nutritionist_knowledge 再回答。"
         "若 retrieve_nutritionist_knowledge 返回了知识片段（结果包含'命中以下知识片段'），"
         "必须直接基于这些片段作答，不得仅凭模型内部知识回答。"
@@ -24,7 +26,8 @@ def _build_nutritionist_agent(user_id: str):
 
 def nutritionist_node(state):
     user_id = state.get("profile_user_id", "default_user")
-    nutritionist_agent = _build_nutritionist_agent(user_id)
+    peer_notes_text = format_peer_notes(state.get("agent_notes") or {}, self_role="Nutritionist")
+    nutritionist_agent = _build_nutritionist_agent(user_id, peer_notes_text)
     result = nutritionist_agent.invoke({"messages": state["messages"]})
     used_tools = []
     for msg in result["messages"]:
@@ -33,8 +36,10 @@ def nutritionist_node(state):
                 used_tools.append(call.get("name", "Unknown"))
 
     retrieval_hits = sum(1 for t in used_tools if "retrieve" in t and "knowledge" in t)
+    answer = extract_text_content(result["messages"][-1])
     return {
-        "expert_responses": {"Nutritionist": extract_text_content(result["messages"][-1])},
+        "expert_responses": {"Nutritionist": answer},
+        "agent_notes": {"Nutritionist": build_scratchpad_note("Nutritionist", answer)},
         "last_tools": used_tools,
         "retrieval_hits": retrieval_hits,
     }

@@ -2,12 +2,14 @@ from ..tools import calculate_tdee, retrieve_trainer_knowledge, get_user_profile
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..profile_store import get_user_profile as get_profile_from_store, profile_to_prompt_text
+from ._scratchpad import format_peer_notes, build_scratchpad_note
 
-def _build_trainer_agent(user_id: str):
+def _build_trainer_agent(user_id: str, peer_notes_text: str):
     profile_text = profile_to_prompt_text(get_profile_from_store(user_id))
     system_prompt = (
         "你是力量训练教练。"
         f"当前用户画像：{profile_text}。"
+        f"{peer_notes_text}"
         "先读取画像，再按需调用工具。"
         "只要用户在问训练/恢复/伤痛相关建议，就必须先调用一次 retrieve_trainer_knowledge 再回答。"
         "若 retrieve_trainer_knowledge 返回了知识片段（结果包含'命中以下知识片段'），"
@@ -26,7 +28,8 @@ def _build_trainer_agent(user_id: str):
 
 def trainer_node(state):
     user_id = state.get("profile_user_id", "default_user")
-    trainer_agent = _build_trainer_agent(user_id)
+    peer_notes_text = format_peer_notes(state.get("agent_notes") or {}, self_role="Trainer")
+    trainer_agent = _build_trainer_agent(user_id, peer_notes_text)
     result = trainer_agent.invoke({"messages": state["messages"]})
     used_tools = []
     for msg in result["messages"]:
@@ -35,8 +38,10 @@ def trainer_node(state):
                 used_tools.append(call.get("name", "Unknown"))
 
     retrieval_hits = sum(1 for t in used_tools if "retrieve" in t and "knowledge" in t)
+    answer = extract_text_content(result["messages"][-1])
     return {
-        "expert_responses": {"Trainer": extract_text_content(result["messages"][-1])},
+        "expert_responses": {"Trainer": answer},
+        "agent_notes": {"Trainer": build_scratchpad_note("Trainer", answer)},
         "last_tools": used_tools,
         "retrieval_hits": retrieval_hits,
     }

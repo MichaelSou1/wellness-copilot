@@ -1,5 +1,6 @@
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from ..llm import extract_text_content, llm
+from .query_rewriter import get_user_question
 
 _EXPERT_DOMAIN_LABELS = {
     "Trainer":      "训练与运动恢复",
@@ -35,25 +36,20 @@ _SYNTHESIS_TEMPLATE = """\
 """
 
 
-def _extract_user_question(state) -> str:
-    for msg in reversed(state.get("messages", [])):
-        if getattr(msg, "type", None) == "human" or isinstance(msg, HumanMessage):
-            return extract_text_content(msg)
-    return ""
-
-
 def aggregator_node(state):
-    current_experts = state.get("next", [])
+    """Produce draft_answer for Critic to review (no messages append here)."""
+    # plan-and-execute: 用 executed (本轮已执行的专家顺序列表) 而非 next
+    current_experts = state.get("executed") or state.get("next", [])
     all_responses = state.get("expert_responses", {})
     relevant = {k: v for k, v in all_responses.items() if k in current_experts}
 
     if not relevant:
-        return {"messages": [AIMessage(content="抱歉，未能获取专家建议，请重试。")]}
+        return {"draft_answer": "抱歉，未能获取专家建议，请重试。"}
 
     if len(relevant) == 1:
-        return {"messages": [AIMessage(content=next(iter(relevant.values())))]}
+        return {"draft_answer": next(iter(relevant.values()))}
 
-    user_question = _extract_user_question(state)
+    user_question = get_user_question(state)
 
     expert_sections = "\n\n".join(
         f"[{_EXPERT_DOMAIN_LABELS.get(k, k)}]\n{v}"
@@ -70,4 +66,4 @@ def aggregator_node(state):
         HumanMessage(content=synthesis_prompt),
     ])
 
-    return {"messages": [AIMessage(content=extract_text_content(response))]}
+    return {"draft_answer": extract_text_content(response)}

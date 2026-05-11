@@ -51,6 +51,8 @@ def main():
         ):
             for key, value in event.items():
                 print(f"\n[当前节点]: {key}")
+                if value is None:
+                    value = {}
 
                 if "messages" in value:
                     last_msg = value["messages"][-1]
@@ -62,6 +64,17 @@ def main():
                     for expert, resp in value["expert_responses"].items():
                         print(f"[{expert} 回答]: {resp[:120]}{'...' if len(resp) > 120 else ''}")
 
+                if "agent_notes" in value and value["agent_notes"]:
+                    for expert, note in value["agent_notes"].items():
+                        print(f"[scratchpad/{expert}]: {note[:100]}{'...' if len(note) > 100 else ''}")
+
+                if "draft_answer" in value and value["draft_answer"]:
+                    draft = value["draft_answer"]
+                    print(f"[Aggregator 草稿]: {draft[:160]}{'...' if len(draft) > 160 else ''}")
+
+                if "critic_verdict" in value and value["critic_verdict"]:
+                    print(f"[Critic 审核]: {value['critic_verdict']}")
+
                 if "last_tools" in value and value["last_tools"]:
                     tools_used.extend(value["last_tools"])
                     for tool_name in value["last_tools"]:
@@ -70,14 +83,22 @@ def main():
                 if "retrieval_hits" in value:
                     retrieval_hits += int(value.get("retrieval_hits", 0))
 
+                if "plan" in value and value["plan"] is not None:
+                    plan_list = value["plan"]
+                    if plan_list:
+                        print(f"[Plan 待执行]: {' -> '.join(plan_list)}")
+
+                if "executed" in value and value["executed"]:
+                    routes = value["executed"]
+                    print(f"[Plan 已执行]: {', '.join(routes)}")
+
                 if "next" in value:
                     next_val = value["next"]
                     if isinstance(next_val, list):
-                        routes = next_val
-                        print(f"[路由决策]: -> {', '.join(next_val)}")
+                        if next_val:
+                            print(f"[Dispatch -> {next_val[0]}]")
                     else:
-                        routes = [str(next_val)]
-                        print(f"[路由决策]: -> {next_val}")
+                        print(f"[Dispatch -> {next_val}]")
 
         route = ",".join(r for r in routes if r != "FINISH") or "FINISH"
 

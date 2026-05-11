@@ -6,29 +6,10 @@ _ = load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# 请确保 .env 文件中有 LLM_API_KEY（或兼容旧版的 SILICONFLOW_API_KEY）
-
-# OpenAI-compatible LLM 配置
-# 优先读取新的通用变量；若未提供，则兼容旧版 SiliconFlow 命名。
-LLM_BASE_URL = (
-    os.environ.get("LLM_BASE_URL")
-    or os.environ.get("OPENAI_COMPAT_BASE_URL")
-    or os.environ.get("OPENAI_BASE_URL")
-    or os.environ.get("SILICONFLOW_BASE_URL")
-    or "https://api.siliconflow.cn/v1"
-)
-LLM_API_KEY = (
-    os.environ.get("LLM_API_KEY")
-    or os.environ.get("OPENAI_COMPAT_API_KEY")
-    or os.environ.get("OPENAI_API_KEY")
-    or os.environ.get("SILICONFLOW_API_KEY")
-)
-LLM_MODEL = (
-    os.environ.get("LLM_MODEL")
-    or os.environ.get("OPENAI_COMPAT_MODEL")
-    or os.environ.get("OPENAI_MODEL")
-    or os.environ.get("SILICONFLOW_MODEL")
-)
+# OpenAI 兼容 LLM 配置（所有节点共用一个最强模型；详见 .env.example）
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
+LLM_API_KEY = os.environ.get("LLM_API_KEY")
+LLM_MODEL = os.environ.get("LLM_MODEL")
 LLM_API_MODE = (
     os.environ.get("LLM_API_MODE", "responses").strip().lower().replace("-", "_")
 )

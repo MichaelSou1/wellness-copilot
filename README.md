@@ -1,21 +1,77 @@
 # Health Guide Agent
 
-基于 LangGraph 的**多 Agent 健康管理系统**，已升级为：
+基于 LangGraph 的**多 Agent 健康管理系统**，采用 **Plan-and-Execute + 动态 Replan + 安全审核** 的协作架构：
 
-- 多 Agent 协作路由（Supervisor + 专家节点）
+- 多轮指代消解（QueryRewriter）
+- 纯 LLM 任务规划（Planner，无关键词硬编码）
+- 顺序执行 + 共享 scratchpad（专家之间能看到彼此要点）
+- Meta-LLM 动态补员（ReplanJudge 决定是否追加专家）
+- 综合输出 + 安全审核（Aggregator → Critic）
 - 个性化画像持久化记忆（跨会话）
 - 本地 RAG 知识增强（可追溯来源）
 - 可观测评估（路由、工具使用、时延、引用率）
 
+## 架构总览
+
+```mermaid
+flowchart TD
+    User([用户消息]) --> QR[QueryRewriter<br/>多轮指代消解]
+    QR -->|contextualized_query| Planner[Planner<br/>纯 LLM 决策]
+    Planner -->|plan: ordered list| Dispatcher{Dispatcher}
+
+    Dispatcher -->|pop head| Expert[/Trainer · Nutritionist<br/>Wellness · General/]
+    Expert --> Judge{{ReplanJudge<br/>meta-LLM}}
+    Judge -->|CONTINUE| Dispatcher
+    Judge -->|REPLAN<br/>cap = 2| Planner
+
+    Dispatcher -->|plan 空| Aggregator[Aggregator<br/>合成草稿]
+    Aggregator --> Critic[Critic<br/>安全审核]
+    Critic --> Out([最终回答])
+
+    %% 共享 scratchpad（侧通道）
+    Expert -. agent_notes .-> Scratchpad[(共享 scratchpad)]
+    Scratchpad -. peer notes .-> Expert
+    Scratchpad -. notes .-> Critic
+
+    classDef meta fill:#fff4e6,stroke:#f59f00,stroke-width:1px;
+    classDef ctrl fill:#e7f5ff,stroke:#1c7ed6,stroke-width:1px;
+    classDef expert fill:#f3f0ff,stroke:#7048e8,stroke-width:1px;
+    classDef store fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:3 3;
+    class QR,Planner,Aggregator,Critic ctrl;
+    class Judge meta;
+    class Expert expert;
+    class Scratchpad store;
+```
+
+> 实线 = 控制流；虚线 = 共享 scratchpad 侧通道；Replan 路径**不经过 QueryRewriter**，保证同一用户轮次的 contextualized_query 稳定。
+
 ## 核心能力
 
-### 1) LangGraph 多 Agent
+### 1) Plan-and-Execute 多 Agent 协作
 
-- **Supervisor**：任务分发与结束判断
-- **Trainer**：训练计划与 `calculate_tdee`
-- **Nutritionist**：饮食策略与营养建议
-- **Wellness**：恢复、压力、睡眠管理
-- **General**：通用沟通与信息澄清
+| 节点 | 角色 | 关键设计 |
+| --- | --- | --- |
+| **QueryRewriter** | 多轮指代消解 | 把"那个怎么吃""再练一次行吗"改写成自包含问题；首轮 passthrough 不调 LLM |
+| **Planner** | 任务规划 | 纯 LLM 决策（已删除关键词硬编码）；按 Trainer→Nutritionist→Wellness→General 推荐顺序排序；replan 模式追加专家时不重复已执行角色 |
+| **Dispatcher** | 顺序执行 | 从 `plan` 头部出列，appending 到 `executed`；处理 replan 请求（带 `REPLAN_CAP=2` 限制防止无限循环） |
+| **Trainer** | 力量训练教练 | `calculate_tdee` + `retrieve_trainer_knowledge` + 画像读写 |
+| **Nutritionist** | 膳食营养师 | `retrieve_nutritionist_knowledge` + 画像读写 |
+| **Wellness** | 身心康复师 | `retrieve_wellness_knowledge` + 画像读写 |
+| **General** | 通用助理 | 寒暄、澄清、`retrieve_general_knowledge` |
+| **ReplanJudge** | 元 LLM 补员判官 | 每个专家执行完后，独立调用 LLM 判断是否需要追加其他专家；输出 `VERDICT: CONTINUE` 或 `VERDICT: REPLAN / REASON: ...` |
+| **Aggregator** | 综合输出 | 把多个专家的回答合成为一份自然流畅的草稿（单专家场景直接透传） |
+| **Critic** | 安全审核 | 读草稿 + 共享 scratchpad + 用户画像，检查健康安全、跨专家矛盾、越界建议；只有真的有问题才 REVISE |
+
+#### 共享 Scratchpad
+
+每个专家执行完会写一条 ≤280 字的精简要点到 `state.agent_notes`，由后执行的专家与下游节点（Critic / 跨轮）共享。例如 Trainer 在 plan 中先执行后会写"今日推荐 20 分钟轻度有氧；用户膝盖未恢复，避免深蹲"，Nutritionist 之后看到这条要点就能给出对应的恢复餐建议。
+
+#### 动态 Replan
+
+- 每个专家完成 → ReplanJudge 元 LLM 调用 → 决定是否要补叫专家
+- Judge 决定 REPLAN → 控制权回到 Planner，Planner 看到 `replan_context` + 已执行列表，追加新专家
+- `REPLAN_CAP=2` 防止无限循环（在 Dispatcher 层强制）
+- 之所以用独立 judge 节点而非让专家自评：专家自评对 prompt 遵循依赖太高，独立 judge 更可靠
 
 ### 2) 个性化画像（长期记忆）
 
@@ -75,9 +131,9 @@ cp .env.example .env
 然后编辑 `.env` 并填入你的 OpenAI 兼容 API 配置：
 
 ```ini
-LLM_BASE_URL=https://api.siliconflow.cn/v1
+LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=your_key
-LLM_MODEL=Qwen/Qwen2.5-14B-Instruct
+LLM_MODEL=gpt-5.5
 LLM_API_MODE=responses
 LLM_OUTPUT_VERSION=responses/v1
 # 可选
@@ -98,7 +154,7 @@ RAG_RERANK_BATCH_SIZE=16
 
 - 主对话模型与 `scripts/generate_eval_dataset.py` 会共用同一套 `LLM_*` 配置。
 - 默认按 OpenAI Responses API 方式调用；如果你的服务商只兼容 Chat Completions，可将 `LLM_API_MODE=chat_completions`。
-- 为兼容旧配置，若未填写 `LLM_*`，代码仍会回退读取 `SILICONFLOW_*` 变量。
+- 所有 Agent 节点（Planner / Critic / 各专家 / Aggregator / ReplanJudge）共用同一个 LLM，建议配置一个能力较强的模型（如 GPT-5.5）以保证路由与审核质量。
 
 2. 使用 Conda 创建环境（推荐）
 
@@ -345,7 +401,7 @@ CLI 参数:
 | `--out` | `eval/rag_eval_dataset_generated.jsonl` | 输出 JSONL 路径 |
 
 > 成本参考:默认 `--questions-per-chunk 2` + 100 个 chunks ≈ 200 次 LLM 调用,
-> 用 Qwen2.5-14B 走 SiliconFlow 大约几毛钱到 1 元 RMB。
+> 实际花费取决于所选模型（如 GPT-5.5 输入 $5/1M tokens、输出 $30/1M tokens）。
 
 > 下一步可以做的迭代(目前脚本中以 TODO 形式保留):
 > - **字面泄漏过滤**:如果 LLM 抄了原文关键短语到问题里,那不是在测语义而是在
@@ -431,17 +487,48 @@ PDF 处理细节：
 
 ```
 Health-Guide-Agent/
-├── main.py
+├── main.py                          # 入口：thread_id + user_id + 评估指标导出
 ├── requirements.txt
-├── knowledge_base/
-├── reports/
+├── knowledge_base/                  # 分层 RAG 语料
+├── reports/                         # 评测 & 会话指标导出
+├── eval/                            # 评测数据集
+├── scripts/                         # 索引构建 / 评测 / smoke 测试
+│   ├── build_rag_index.py
+│   ├── evaluate_rag.py
+│   ├── generate_eval_dataset.py
+│   ├── smoke_coreference.py         # 多轮指代消解端到端
+│   ├── smoke_dynamic_replan.py      # ReplanJudge 元 LLM 判官
+│   ├── smoke_plan_execute.py        # Planner → Dispatcher → 顺序专家
+│   └── smoke_critic_scratchpad.py   # Critic + 共享 scratchpad
 └── health_guide/
-    ├── agents/
-    ├── graph.py
-    ├── tools.py
-    ├── rag.py
-    ├── profile_store.py
-    ├── observability.py
-    ├── config.py
-    └── ...
+    ├── graph.py                     # LangGraph 拓扑（QueryRewriter → Planner → Dispatcher → 专家 → ReplanJudge → ... → Aggregator → Critic）
+    ├── state.py                     # AgentState (plan/executed/agent_notes/contextualized_query/replan_*)
+    ├── llm.py                       # 所有节点共用一个 ChatOpenAI 实例
+    ├── tools.py                     # RAG 工具 + 画像工具 + calculate_tdee
+    ├── rag.py                       # 两阶段检索
+    ├── profile_store.py             # 跨会话画像存储
+    ├── observability.py             # 路由/工具/时延/引用率 指标
+    ├── config.py                    # .env 解析
+    └── agents/
+        ├── query_rewriter.py        # 多轮指代消解 + 共享 get_user_question
+        ├── planner.py               # 纯 LLM 规划（fresh / replan 双模式）
+        ├── dispatcher.py            # 顺序执行 + replan 触发 + cap
+        ├── trainer.py / nutritionist.py / wellness.py / general.py
+        ├── replan_judge.py          # 元 LLM 补员判官
+        ├── aggregator.py            # 多专家合成草稿
+        ├── critic.py                # 安全审核（PASS / REVISE）
+        └── _scratchpad.py           # 共享 scratchpad helper
 ```
+
+## 端到端测试（smoke）
+
+仓库带了 4 个 smoke 脚本，覆盖各个多 Agent 特性：
+
+```bash
+python scripts/smoke_critic_scratchpad.py   # Critic + 共享 scratchpad
+python scripts/smoke_plan_execute.py        # Plan-and-Execute 顺序协作
+python scripts/smoke_dynamic_replan.py      # 元 LLM ReplanJudge + 动态补员
+python scripts/smoke_coreference.py         # 多轮指代消解（QueryRewriter）
+```
+
+每个脚本既包含**确定性单元测试**（直接调用节点函数），又包含**端到端真实 LLM 调用**（验证完整 graph 收敛）。`smoke_dynamic_replan.py` 还用 stub 强制触发一次 replan，验证 Planner 二次规划能正确补员。

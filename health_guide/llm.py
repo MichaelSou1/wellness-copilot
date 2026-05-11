@@ -5,15 +5,9 @@ from . import config  # Ensure .env is loaded
 
 def _validate_llm_config():
     if not config.LLM_MODEL:
-        raise ValueError(
-            "LLM_MODEL is not set. Please configure LLM_MODEL "
-            "(or the legacy SILICONFLOW_MODEL) in your .env file."
-        )
+        raise ValueError("LLM_MODEL is not set. Please configure it in your .env file.")
     if not config.LLM_API_KEY:
-        raise ValueError(
-            "LLM_API_KEY is not set. Please configure LLM_API_KEY "
-            "(or the legacy SILICONFLOW_API_KEY) in your .env file."
-        )
+        raise ValueError("LLM_API_KEY is not set. Please configure it in your .env file.")
 
 
 def _base_llm_kwargs():
