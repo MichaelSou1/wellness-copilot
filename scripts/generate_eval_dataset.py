@@ -7,12 +7,10 @@
 因为 query 就是从这段 chunk 反推出来的,正确答案当然是它。
 
 这个脚本**对知识库结构没有任何硬编码**:
-- 遍历 `KNOWLEDGE_BASE_DIR` 下的 shared 目录以及所有
-  `KNOWLEDGE_BASE_AGENT_SUBDIRS` 中声明的 agent 私有目录;
+- 遍历 `KNOWLEDGE_BASE_AGENT_SUBDIRS` 中声明的各 agent 私有目录;
 - 对每一个 .md / .txt / .pdf 文件按和生产管线完全一致的方式切分 chunk;
-- chunk_id 的格式与 `LayeredKnowledgeRouter.retrieve_stages()` 返回值保持一致
-  (带 namespace 前缀),所以生成出来的 ground truth 可以被 `evaluate_rag.py`
-  原样匹配,不需要任何额外适配。
+- chunk_id 格式与 `LocalKnowledgeBase.retrieve_stages()` 返回值保持一致,
+  生成的 ground truth 可被 `evaluate_rag.py` 原样匹配。
 
 用法:
 
@@ -55,7 +53,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # --------------------------------------------------------------------------- #
 
 
-def _chunks_from_store(store, namespace: str) -> List[Dict]:
+def _chunks_from_store(store, agent: str) -> List[Dict]:
     """调用 LocalKnowledgeBase 的文档读取 + 切分,但**不触发 embedding 加载**。
 
     生产代码里 `build()` 会尝试 lazy-load embed 模型,脚本这里完全不需要向量,
@@ -68,15 +66,14 @@ def _chunks_from_store(store, namespace: str) -> List[Dict]:
         pieces = store._split_text(d["text"])
         for i, (text, page_range) in enumerate(pieces):
             if page_range:
-                raw_chunk_id = f"{d['source']}#p{page_range}-chunk-{i+1}"
+                chunk_id = f"{d['source']}#p{page_range}-chunk-{i+1}"
             else:
-                raw_chunk_id = f"{d['source']}#chunk-{i+1}"
+                chunk_id = f"{d['source']}#chunk-{i+1}"
             collected.append(
                 {
-                    "agent": namespace,
-                    "namespace": namespace,
-                    "chunk_id": f"{namespace}:{raw_chunk_id}",
-                    "source": f"{namespace}/{d['source']}",
+                    "agent": agent,
+                    "chunk_id": chunk_id,
+                    "source": d["source"],
                     "text": text,
                     "page_range": page_range,
                 }
@@ -85,30 +82,12 @@ def _chunks_from_store(store, namespace: str) -> List[Dict]:
 
 
 def collect_all_chunks(kb_root: Path, chunk_size: int, overlap: int) -> List[Dict]:
-    """遍历共享库 + 所有 agent 私有库, 返回统一结构的 chunk 列表。
-
-    命名空间的选取与 `LayeredKnowledgeRouter` 保持一致 —— 因为评测时路由器
-    返回的 chunk_id 就长那样, ground truth 只有和它对齐才能被匹配到。
-    """
-    from health_guide.config import (
-        KNOWLEDGE_BASE_SHARED_SUBDIR,
-        KNOWLEDGE_BASE_AGENT_SUBDIRS,
-    )
+    """遍历所有 agent 私有知识库, 返回统一结构的 chunk 列表。"""
+    from health_guide.config import KNOWLEDGE_BASE_AGENT_SUBDIRS
     from health_guide.rag import LocalKnowledgeBase
 
     kb_root = Path(kb_root)
     all_chunks: List[Dict] = []
-
-    # Shared namespace(如果目录不存在就跳过, 保持和生产代码一致的宽容度)
-    shared_path = kb_root / KNOWLEDGE_BASE_SHARED_SUBDIR
-    if shared_path.exists():
-        shared_store = LocalKnowledgeBase(
-            kb_dir=str(shared_path),
-            chunk_size=chunk_size,
-            overlap=overlap,
-            recursive=True,
-        )
-        all_chunks.extend(_chunks_from_store(shared_store, namespace="shared"))
 
     # Agent-specific namespaces(动态读取 config, 不硬编码 agent 名)
     for agent, subdir in KNOWLEDGE_BASE_AGENT_SUBDIRS.items():
@@ -121,7 +100,7 @@ def collect_all_chunks(kb_root: Path, chunk_size: int, overlap: int) -> List[Dic
             overlap=overlap,
             recursive=True,
         )
-        all_chunks.extend(_chunks_from_store(agent_store, namespace=agent))
+        all_chunks.extend(_chunks_from_store(agent_store, agent=agent))
 
     return all_chunks
 

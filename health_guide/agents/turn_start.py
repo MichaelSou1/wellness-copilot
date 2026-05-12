@@ -22,6 +22,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 
+from ..episode_store import format_episodes_for_prompt, get_recent_episodes
 from ..llm import extract_text_content, llm
 from ..state import RESET_SENTINEL
 
@@ -63,7 +64,15 @@ def _render_messages(msgs):
 
 
 def turn_start_node(state):
+    user_id = state.get("profile_user_id", "default_user")
+    try:
+        episodes = get_recent_episodes(user_id, n=5)
+        episode_context = format_episodes_for_prompt(episodes)
+    except Exception:
+        episode_context = ""
+
     update = {
+        "episode_context": episode_context,
         # Reset accumulator fields via sentinels honored by state.py reducers
         "agent_notes": {RESET_SENTINEL: True},
         "expert_responses": {RESET_SENTINEL: True},

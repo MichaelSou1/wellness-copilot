@@ -68,6 +68,8 @@ eval/rag_eval_dataset_generated.jsonl
 *.sqlite
 *.sqlite3
 profile_store.json
+episode_store.json
+session_store.json
 observability.db
 checkpoints.db
 

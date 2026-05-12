@@ -3,18 +3,24 @@ from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..profile_store import get_user_profile as get_profile_from_store, profile_to_prompt_text
 from ._scratchpad import format_peer_notes, build_scratchpad_note
+from .query_rewriter import get_user_question
 
-def _build_wellness_agent(user_id: str, peer_notes_text: str):
+
+def _build_wellness_agent(user_id: str, peer_notes_text: str, rag_context: str):
     profile_text = profile_to_prompt_text(get_profile_from_store(user_id))
+    if rag_context:
+        rag_section = (
+            "【已为你预先检索到相关康复/睡眠/压力知识，请直接基于以下内容作答，无需再调用 retrieve_wellness_knowledge】\n"
+            f"{rag_context}\n"
+        )
+    else:
+        rag_section = "（本次未能预先检索，如需知识库支持请调用 retrieve_wellness_knowledge）"
     system_prompt = (
         "你是身心康复师。"
         f"当前用户画像：{profile_text}。"
         f"{peer_notes_text}"
-        "当用户询问康复/睡眠/压力等建议时，必须先调用一次 retrieve_wellness_knowledge 再回答。"
-        "若 retrieve_wellness_knowledge 返回了知识片段（结果包含'命中以下知识片段'），"
-        "必须直接基于这些片段作答，不得仅凭模型内部知识回答。"
-        "仅当 retrieve_wellness_knowledge 明确返回'未命中本地知识库'时，"
-        "才可不再依赖知识库片段，直接用你的通用康复、睡眠与压力管理知识给出保守兜底建议。"
+        f"{rag_section}"
+        "若知识片段明确返回'未命中本地知识库'，可用通用康复、睡眠与压力管理知识给出保守兜底建议。"
         "若用户透露新的压力来源、睡眠信息、疼痛变化，请调用 update_user_profile 记录。"
         "输出时兼顾心理支持、恢复节奏与风险边界。"
         "【个性化要求】回答必须结合画像中已知的压力来源（mental_state.stress_sources）、"
@@ -26,14 +32,18 @@ def _build_wellness_agent(user_id: str, peer_notes_text: str):
     )
     return create_agent(
         llm,
-        [retrieve_wellness_knowledge, get_user_profile, update_user_profile],
+        [get_user_profile, update_user_profile],
         system_prompt,
     )
 
+
 def wellness_node(state):
     user_id = state.get("profile_user_id", "default_user")
+    user_question = get_user_question(state)
+    rag_context = retrieve_wellness_knowledge.invoke({"query": user_question}) if user_question else ""
+
     peer_notes_text = format_peer_notes(state.get("agent_notes") or {}, self_role="Wellness")
-    wellness_agent = _build_wellness_agent(user_id, peer_notes_text)
+    wellness_agent = _build_wellness_agent(user_id, peer_notes_text, rag_context)
     result = wellness_agent.invoke({"messages": state["messages"]})
     used_tools = []
     for msg in result["messages"]:
@@ -41,7 +51,9 @@ def wellness_node(state):
             for call in msg.tool_calls:
                 used_tools.append(call.get("name", "Unknown"))
 
-    retrieval_hits = sum(1 for t in used_tools if "retrieve" in t and "knowledge" in t)
+    retrieval_hits = (1 if rag_context else 0) + sum(
+        1 for t in used_tools if "retrieve" in t and "knowledge" in t
+    )
     answer = extract_text_content(result["messages"][-1])
     return {
         "expert_responses": {"Wellness": answer},

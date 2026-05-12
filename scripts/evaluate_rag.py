@@ -284,7 +284,7 @@ def _diff_stage(
 
 def evaluate(
     samples: List[EvalSample],
-    kb,
+    agent_kbs: Dict,
     stage1_ks: List[int],
     stage2_ks: List[int],
     stage1_pool: int,
@@ -304,9 +304,11 @@ def evaluate(
     details = []
 
     for sample in samples:
+        kb = agent_kbs.get(sample.agent) or agent_kbs.get("general")
+        if kb is None:
+            raise ValueError(f"No KB found for agent '{sample.agent}'")
         staged = kb.retrieve_stages(
             query=sample.query,
-            agent=sample.agent,
             stage1_k=max_stage1_k,
             stage2_k=max_stage2_k,
         )
@@ -423,8 +425,9 @@ def _pretty_print_summary(report: Dict[str, object]) -> None:
 
 
 def main():
-    from health_guide.config import KNOWLEDGE_BASE_DIR
-    from health_guide.rag import LayeredKnowledgeRouter
+    from pathlib import Path as _Path
+    from health_guide.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
+    from health_guide.rag import LocalKnowledgeBase
 
     parser = argparse.ArgumentParser(
         description=(
@@ -479,18 +482,22 @@ def main():
     stage2_ks = parse_ks(args.stage2_ks)
     dataset = load_dataset(Path(args.dataset))
 
-    kb = LayeredKnowledgeRouter(
-        kb_root=args.kb_dir,
-        chunk_size=args.chunk_size,
-        overlap=args.overlap,
-        boundary_look_back=args.boundary_look_back,
-        min_chunk_chars=args.min_chunk_chars,
-    )
-    kb.build(force_rebuild=False)
+    kb_root = _Path(args.kb_dir)
+    agent_kbs = {}
+    for agent, subdir in KNOWLEDGE_BASE_AGENT_SUBDIRS.items():
+        kb = LocalKnowledgeBase(
+            kb_dir=str(kb_root / subdir),
+            chunk_size=args.chunk_size,
+            overlap=args.overlap,
+            boundary_look_back=args.boundary_look_back,
+            min_chunk_chars=args.min_chunk_chars,
+        )
+        kb.build(force_rebuild=False)
+        agent_kbs[agent] = kb
 
     report = evaluate(
         samples=dataset,
-        kb=kb,
+        agent_kbs=agent_kbs,
         stage1_ks=stage1_ks,
         stage2_ks=stage2_ks,
         stage1_pool=args.stage1_pool,

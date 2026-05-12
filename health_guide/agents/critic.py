@@ -17,6 +17,7 @@ import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
 from ..profile_store import (
     get_user_profile as get_profile_from_store,
@@ -155,6 +156,16 @@ def critic_node(state):
         final_text = draft
         if verdict == "UNKNOWN":
             verdict = "PASS_FALLBACK"
+
+    try:
+        append_episode(
+            user_id=user_id,
+            query=get_user_question(state) or "",
+            experts=state.get("executed") or [],
+            gist=final_text,
+        )
+    except Exception:
+        pass
 
     return {
         "messages": [AIMessage(content=final_text)],

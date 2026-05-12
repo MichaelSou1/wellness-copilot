@@ -82,6 +82,10 @@ def _parse_verdict(text: str) -> str:
 
 
 def replan_judge_node(state):
+    # Remaining planned experts already decided by Planner — nothing to replan yet.
+    if state.get("plan"):
+        return {}
+
     executed = state.get("executed") or []
     if not executed:
         # Nothing to judge yet.

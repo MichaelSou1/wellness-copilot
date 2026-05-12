@@ -9,8 +9,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def main():
-    from health_guide.config import KNOWLEDGE_BASE_DIR
-    from health_guide.rag import LayeredKnowledgeRouter
+    from health_guide.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
+    from health_guide.rag import LocalKnowledgeBase
 
     parser = argparse.ArgumentParser(description="Offline prebuild for local RAG embeddings/index cache.")
     parser.add_argument("--kb-dir", default=KNOWLEDGE_BASE_DIR, help="Knowledge base directory path")
@@ -33,19 +33,27 @@ def main():
     )
     args = parser.parse_args()
 
-    kb = LayeredKnowledgeRouter(
-        kb_root=args.kb_dir,
-        chunk_size=args.chunk_size,
-        overlap=args.overlap,
-        boundary_look_back=args.boundary_look_back,
-        min_chunk_chars=args.min_chunk_chars,
-    )
-    kb.build(force_rebuild=args.rebuild, agent=args.agent or None)
+    kb_root = Path(args.kb_dir)
+    agents_to_build = [args.agent] if args.agent else list(KNOWLEDGE_BASE_AGENT_SUBDIRS.keys())
 
-    stats = kb.get_index_stats()
+    stats = {}
+    for agent in agents_to_build:
+        subdir = KNOWLEDGE_BASE_AGENT_SUBDIRS.get(agent, agent)
+        kb_dir = str(kb_root / subdir)
+        kb = LocalKnowledgeBase(
+            kb_dir=kb_dir,
+            chunk_size=args.chunk_size,
+            overlap=args.overlap,
+            boundary_look_back=args.boundary_look_back,
+            min_chunk_chars=args.min_chunk_chars,
+        )
+        kb.build(force_rebuild=args.rebuild)
+        stats[agent] = kb.get_index_stats()
+        print(f"[RAG Index] {agent}: {stats[agent]}")
+
     payload = {
-        "layered_stats": stats,
-        "kb_dir": str(Path(args.kb_dir)),
+        "per_agent_stats": stats,
+        "kb_dir": str(kb_root),
         "chunk_size": args.chunk_size,
         "overlap": args.overlap,
         "boundary_look_back": args.boundary_look_back,

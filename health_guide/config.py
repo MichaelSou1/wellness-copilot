@@ -39,6 +39,9 @@ DEFAULT_USER_PROFILE = {
 # 持久化画像存储文件
 PROFILE_STORE_PATH = os.environ.get("PROFILE_STORE_PATH", "profile_store.json")
 
+# 情节记忆存储文件（每用户最近 N 轮对话摘要，跨 thread 持久化）
+EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
+
 # 本地知识库目录
 KNOWLEDGE_BASE_DIR = os.environ.get("KNOWLEDGE_BASE_DIR", "knowledge_base")
 KNOWLEDGE_BASE_SHARED_SUBDIR = os.environ.get("KNOWLEDGE_BASE_SHARED_SUBDIR", "shared")

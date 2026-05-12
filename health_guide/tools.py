@@ -1,16 +1,30 @@
 import os
 import re
+from pathlib import Path
 from langchain_core.tools import tool
 
 import json
 
-from .rag import get_kb
+from .rag import LocalKnowledgeBase
+from .config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
 from .profile_store import get_user_profile as get_profile_from_store
 from .profile_store import update_user_profile as update_profile_in_store
 
+# Per-agent KB singletons — created lazily on first call.
+_AGENT_KBS: dict = {}
+
+
+def _get_agent_kb(agent: str) -> LocalKnowledgeBase:
+    if agent not in _AGENT_KBS:
+        subdir = KNOWLEDGE_BASE_AGENT_SUBDIRS.get(agent, agent)
+        kb_dir = str(Path(KNOWLEDGE_BASE_DIR) / subdir)
+        _AGENT_KBS[agent] = LocalKnowledgeBase(kb_dir=kb_dir)
+    return _AGENT_KBS[agent]
+
+
 def _retrieve_by_agent(query: str, top_k: int, agent: str) -> str:
-    kb = get_kb()
-    results = kb.retrieve(query=query, top_k=top_k, agent=agent)
+    kb = _get_agent_kb(agent)
+    results = kb.retrieve(query=query, top_k=top_k)
     if not results:
         return "[RAG] 未命中本地知识库，请尝试改写查询或补充 knowledge_base 文档。"
 
@@ -20,38 +34,32 @@ def _retrieve_by_agent(query: str, top_k: int, agent: str) -> str:
         if len(snippet) > 220:
             snippet = snippet[:220] + "..."
         lines.append(
-            f"{i}. [source: {r['source']} | chunk: {r['chunk_id']} | ns: {r.get('namespace', 'n/a')} | score: {r['score']}] {snippet}"
+            f"{i}. [source: {r['source']} | chunk: {r['chunk_id']} | score: {r['score']}] {snippet}"
         )
     return "\n".join(lines)
 
 
 @tool
-def retrieve_health_knowledge(query: str, top_k: int = 4, agent: str = "general"):
-    """通用检索工具：从分层知识库检索（shared + 指定 agent 私有语料）。"""
-    return _retrieve_by_agent(query=query, top_k=top_k, agent=agent)
-
-
-@tool
 def retrieve_trainer_knowledge(query: str, top_k: int = 4):
-    """训练教练专用：优先检索 trainer 私有知识库，再补充 shared。"""
+    """训练教练专用：从 trainer 知识库检索训练/运动/康复知识。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="trainer")
 
 
 @tool
 def retrieve_nutritionist_knowledge(query: str, top_k: int = 4):
-    """营养师专用：优先检索 nutritionist 私有知识库，再补充 shared。"""
+    """营养师专用：从 nutritionist 知识库检索饮食/营养/热量知识。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="nutritionist")
 
 
 @tool
 def retrieve_wellness_knowledge(query: str, top_k: int = 4):
-    """康复师专用：优先检索 wellness 私有知识库，再补充 shared。"""
+    """康复师专用：从 wellness 知识库检索睡眠/压力/身心恢复知识。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="wellness")
 
 
 @tool
 def retrieve_general_knowledge(query: str, top_k: int = 4):
-    """通用助手专用：优先检索 general 私有知识库，再补充 shared。"""
+    """通用助手专用：从 general 知识库检索常识/健康通识。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="general")
 
 
@@ -83,7 +91,7 @@ def calculate_tdee(weight_kg: float, height_cm: float, age: int, activity_level:
     """根据体重、身高、年龄计算每日热量消耗(TDEE)。activity_level 可选: sedentary, active, very_active"""
     # Mifflin-St Jeor 公式
     bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
-    
+
     multipliers = {
         "sedentary": 1.2,
         "active": 1.55,
@@ -94,7 +102,6 @@ def calculate_tdee(weight_kg: float, height_cm: float, age: int, activity_level:
 
 # 工具列表
 tools = [
-    retrieve_health_knowledge,
     retrieve_trainer_knowledge,
     retrieve_nutritionist_knowledge,
     retrieve_wellness_knowledge,

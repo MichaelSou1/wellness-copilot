@@ -71,3 +71,5 @@ class AgentState(TypedDict, total=False):
     contextualized_query: Annotated[str, _take_last_str]
     # 长历史压缩后的摘要（TurnStart 写入，作为 SystemMessage 注入 messages）
     history_summary: Annotated[str, _take_last_str]
+    # 跨 thread 情节记忆（TurnStart 从 episode_store 读取，供 Planner 路由参考）
+    episode_context: Annotated[str, _take_last_str]

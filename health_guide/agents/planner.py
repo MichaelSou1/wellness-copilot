@@ -15,6 +15,7 @@ from typing import List, Dict
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..llm import extract_text_content, llm
+from ..profile_store import get_user_profile as _get_profile
 from .query_rewriter import get_user_question, get_user_message_for_planner
 
 
@@ -43,6 +44,14 @@ _FRESH_PLAN_SYSTEM = (
     "  例如：'训练后睡不好' -> Trainer,Wellness\n"
     "  例如：'训练后多久睡觉比较好' -> Trainer,Wellness\n"
     "  例如：'你好/谢谢/再见' -> General\n"
+    "【画像联动规则】若消息中含有「用户画像」，需结合其中的伤病和目标做路由决策：\n"
+    "  - 用户有伤病记录，且问题涉及训练、运动量或体能提升 → 必须包含 Trainer\n"
+    "  - 用户目标为增肌/减脂，且问题涉及饮食或营养 → 同时派 Nutritionist\n"
+    "  例如：画像含「ACL 撕裂」，问「增肌吃什么」→ Trainer,Nutritionist\n"
+    "  例如：画像含「减脂目标」，问「睡眠质量差」→ Wellness（无跨域需求不强制扩展）\n"
+    "【历史记录联动】若消息中含有「近期对话记录」，可辅助路由：\n"
+    "  - 近期记录中出现的伤病/身体问题，即使本次未明说，也应纳入路由考量\n"
+    "  例如：近期问过「膝盖 ACL 术后恢复」，本次问「增肌饮食」→ Trainer,Nutritionist\n"
     "【FINISH 规则】仅当用户消息**不需要任何回答**时才输出 FINISH（比如用户只是道谢/告别且无后续问题）。\n"
     "只要用户提了任何健康相关问题，就必须选择至少一个专家而不是 FINISH。\n"
     "直接输出按执行顺序排列的角色名称，多个时用英文逗号分隔（不加空格），不要输出其他内容。"
@@ -60,6 +69,31 @@ _REPLAN_SYSTEM = (
     "4. 否则按推荐顺序 Trainer → Nutritionist → Wellness → General 输出角色名，\n"
     "   多个时用英文逗号分隔（不加空格），不要输出其他内容。"
 )
+
+
+def _profile_summary(profile: dict) -> str:
+    """Return a concise routing-relevant summary; empty string if nothing meaningful."""
+    parts = []
+    stats = profile.get("physical_stats") or {}
+    if stats.get("age"):
+        parts.append(f"{stats['age']}岁")
+    if stats.get("weight"):
+        parts.append(f"{stats['weight']}kg")
+    injuries = stats.get("injuries") or []
+    if injuries:
+        parts.append(f"伤病：{'、'.join(str(x) for x in injuries)}")
+    dietary = profile.get("dietary_context") or {}
+    goal = (dietary.get("goal") or "").strip()
+    if goal and goal != "健康":
+        parts.append(f"目标：{goal}")
+    prefs = dietary.get("preferences") or []
+    if prefs:
+        parts.append(f"饮食偏好：{'、'.join(str(x) for x in prefs)}")
+    mental = profile.get("mental_state") or {}
+    stress = mental.get("stress_sources") or []
+    if stress:
+        parts.append(f"压力源：{'、'.join(str(x) for x in stress)}")
+    return "，".join(parts)
 
 
 def _format_responses(responses: Dict[str, str]) -> str:
@@ -83,10 +117,23 @@ def _parse_role_list(content: str) -> List[str]:
 
 
 def _fresh_plan(state) -> dict:
-    # Use the contextualized query (resolved by QueryRewriter) so that
-    # follow-up questions like "那个怎么吃" are properly routed without
-    # exposing the full chat history (which tends to trigger FINISH).
-    routing_msg = get_user_message_for_planner(state)
+    user_id = state.get("profile_user_id", "default_user")
+    profile = _get_profile(user_id)
+    summary = _profile_summary(profile)
+
+    user_question = get_user_question(state)
+    episode_ctx = (state.get("episode_context") or "").strip()
+
+    parts = []
+    if summary:
+        parts.append(f"用户画像：{summary}")
+    if episode_ctx:
+        parts.append(f"近期对话记录：\n{episode_ctx}")
+    parts.append(f"用户问题：{user_question}")
+    routing_content = "\n".join(parts)
+
+    routing_msg = HumanMessage(content=routing_content)
+
     response = llm.invoke([SystemMessage(content=_FRESH_PLAN_SYSTEM), routing_msg])
     content = extract_text_content(response).strip().replace("'", "").replace('"', "")
 

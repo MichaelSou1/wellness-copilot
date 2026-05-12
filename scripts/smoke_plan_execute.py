@@ -47,9 +47,13 @@ def run_turn(thread_id: str, user_id: str, query: str):
                 print(f"   next: {value['next']}")
             if value.get("expert_responses"):
                 for k, v in value["expert_responses"].items():
+                    if not isinstance(v, str):
+                        continue
                     print(f"   expert[{k}]: {v[:100]}{'...' if len(v) > 100 else ''}")
             if value.get("agent_notes"):
                 for k, v in value["agent_notes"].items():
+                    if not isinstance(v, str):
+                        continue
                     print(f"   note[{k}]: {v[:100]}{'...' if len(v) > 100 else ''}")
             if value.get("draft_answer"):
                 d = value["draft_answer"]
