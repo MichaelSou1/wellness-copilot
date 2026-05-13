@@ -82,6 +82,8 @@ class LocalKnowledgeBase:
 
         # 索引缓存
         self._chunk_embeddings = None
+        self._faiss_index = None
+        self._faiss_disabled_reason = ""
         self._fingerprint = None
         self._ready = False
 
@@ -418,8 +420,85 @@ class LocalKnowledgeBase:
     def _cache_embeddings_path(self) -> Path:
         return self.cache_dir / "embeddings.npy"
 
+    def _cache_faiss_path(self) -> Path:
+        return self.cache_dir / "index.faiss"
+
     def _cache_chunks_path(self) -> Path:
         return self.cache_dir / "chunks.json"
+
+    def _lazy_import_faiss(self):
+        try:
+            return importlib.import_module("faiss")
+        except Exception as e:
+            if not self._faiss_disabled_reason:
+                self._faiss_disabled_reason = f"{e.__class__.__name__}: {e}"
+                print(
+                    "[RAG][warn] FAISS unavailable; falling back to NumPy dense retrieval. "
+                    f"{self._faiss_disabled_reason}"
+                )
+            return None
+
+    def _build_faiss_index(self):
+        if self._chunk_embeddings is None or len(self._chunk_embeddings) == 0:
+            self._faiss_index = None
+            return None
+
+        faiss = self._lazy_import_faiss()
+        if faiss is None:
+            self._faiss_index = None
+            return None
+
+        try:
+            np = self._lazy_import_numpy()
+            embeddings = np.ascontiguousarray(self._chunk_embeddings, dtype=np.float32)
+            index = faiss.IndexFlatIP(embeddings.shape[1])
+            index.add(embeddings)
+            self._faiss_index = index
+            return index
+        except Exception as e:
+            self._faiss_index = None
+            self._faiss_disabled_reason = f"{e.__class__.__name__}: {e}"
+            print(
+                "[RAG][warn] Failed to build FAISS index; falling back to NumPy dense retrieval. "
+                f"{self._faiss_disabled_reason}"
+            )
+            return None
+
+    def _try_load_faiss_index(self) -> bool:
+        faiss_path = self._cache_faiss_path()
+        if not faiss_path.exists():
+            return False
+
+        faiss = self._lazy_import_faiss()
+        if faiss is None:
+            return False
+
+        try:
+            self._faiss_index = faiss.read_index(str(faiss_path))
+            return True
+        except Exception as e:
+            self._faiss_index = None
+            print(
+                "[RAG][warn] Failed to load FAISS index cache; rebuilding from embeddings. "
+                f"{e.__class__.__name__}: {e}"
+            )
+            return False
+
+    def _save_faiss_index(self):
+        if self._faiss_index is None:
+            return
+
+        faiss = self._lazy_import_faiss()
+        if faiss is None:
+            return
+
+        try:
+            faiss.write_index(self._faiss_index, str(self._cache_faiss_path()))
+        except Exception as e:
+            print(
+                "[RAG][warn] Failed to save FAISS index cache; retrieval can still use in-memory index. "
+                f"{e.__class__.__name__}: {e}"
+            )
 
     def _try_load_cache(self) -> bool:
         np = self._lazy_import_numpy()
@@ -437,6 +516,8 @@ class LocalKnowledgeBase:
             chunk_items = json.loads(chunks_path.read_text(encoding="utf-8"))
             self.chunks = [Chunk(**item) for item in chunk_items]
             self._chunk_embeddings = np.load(str(emb_path))
+            if not self._try_load_faiss_index():
+                self._build_faiss_index()
             return True
         except Exception:
             return False
@@ -453,6 +534,7 @@ class LocalKnowledgeBase:
             encoding="utf-8",
         )
         np.save(str(self._cache_embeddings_path()), self._chunk_embeddings)
+        self._save_faiss_index()
 
     def _split_text(self, text: str):
         """切分文本为 chunks。返回 [(piece, page_range_or_None), ...]。
@@ -563,6 +645,7 @@ class LocalKnowledgeBase:
 
         self._chunk_embeddings = None
         self.chunks = []
+        self._faiss_index = None
         self._ready = False
 
     def build(self, force_rebuild: bool = False):
@@ -599,6 +682,7 @@ class LocalKnowledgeBase:
 
         if not self.chunks:
             self._chunk_embeddings = None
+            self._faiss_index = None
             self._ready = True
             return
 
@@ -623,6 +707,7 @@ class LocalKnowledgeBase:
             show_progress_bar=False,
         )
         self._chunk_embeddings = np.asarray(embeddings, dtype=np.float32)
+        self._build_faiss_index()
         self._save_cache()
         self._ready = True
 
@@ -631,7 +716,29 @@ class LocalKnowledgeBase:
             "doc_count": len(self._read_documents()),
             "chunk_count": len(self.chunks),
             "cache_exists": int(self.cache_dir.exists()),
+            "faiss_index_loaded": int(self._faiss_index is not None),
         }
+
+    def _dense_topk(self, query_emb, top_k: int):
+        np = self._lazy_import_numpy()
+        top_k = max(1, min(top_k, len(self.chunks)))
+
+        if self._faiss_index is not None:
+            query_vec = np.ascontiguousarray([query_emb], dtype=np.float32)
+            scores, indices = self._faiss_index.search(query_vec, top_k)
+            pairs = [
+                (int(i), float(score))
+                for i, score in zip(indices[0], scores[0])
+                if int(i) >= 0
+            ]
+            return pairs
+
+        sim_scores = self._chunk_embeddings @ query_emb
+        candidate_idx = np.argpartition(-sim_scores, top_k - 1)[:top_k]
+        candidate_idx = sorted(
+            candidate_idx.tolist(), key=lambda i: float(sim_scores[i]), reverse=True
+        )
+        return [(int(i), float(sim_scores[i])) for i in candidate_idx]
 
     def retrieve_stages(
         self,
@@ -658,7 +765,6 @@ class LocalKnowledgeBase:
             return empty
 
         self._lazy_load_models(require_reranker=False)
-        np = self._lazy_import_numpy()
 
         stage1_k = max(1, min(stage1_k, len(self.chunks)))
         stage2_k = max(1, min(stage2_k, stage1_k))
@@ -672,11 +778,9 @@ class LocalKnowledgeBase:
             show_progress_bar=False,
         )[0]
 
-        sim_scores = self._chunk_embeddings @ query_emb
-        candidate_idx = np.argpartition(-sim_scores, stage1_k - 1)[:stage1_k]
-        candidate_idx = sorted(
-            candidate_idx.tolist(), key=lambda i: float(sim_scores[i]), reverse=True
-        )
+        candidates = self._dense_topk(query_emb, stage1_k)
+        candidate_idx = [i for i, _dense in candidates]
+        dense_scores = {i: dense for i, dense in candidates}
 
         stage1_results: List[Dict[str, object]] = []
         for rank, i in enumerate(candidate_idx, start=1):
@@ -687,7 +791,7 @@ class LocalKnowledgeBase:
                     "chunk_id": c.chunk_id,
                     "source": c.source,
                     "page_range": c.page_range,
-                    "dense_score": round(float(sim_scores[i]), 4),
+                    "dense_score": round(dense_scores[i], 4),
                 }
             )
 
@@ -702,7 +806,7 @@ class LocalKnowledgeBase:
                         "chunk_id": c.chunk_id,
                         "source": c.source,
                         "page_range": c.page_range,
-                        "dense_score": round(float(sim_scores[i]), 4),
+                        "dense_score": round(dense_scores[i], 4),
                         "rerank_score": None,
                     }
                 )
@@ -718,7 +822,7 @@ class LocalKnowledgeBase:
 
         combined = []
         for i, rr in zip(candidate_idx, rerank_scores):
-            combined.append((i, float(sim_scores[i]), float(rr)))
+            combined.append((i, dense_scores[i], float(rr)))
         combined.sort(key=lambda x: x[2], reverse=True)
 
         for rank, (i, dense, rr) in enumerate(combined[:stage2_k], start=1):
@@ -748,7 +852,6 @@ class LocalKnowledgeBase:
             return []
 
         self._lazy_load_models(require_reranker=False)
-        np = self._lazy_import_numpy()
 
         # Stage-1: Dense Retrieve
         query_emb = self._embed_model.encode(
@@ -759,16 +862,16 @@ class LocalKnowledgeBase:
             show_progress_bar=False,
         )[0]
 
-        sim_scores = self._chunk_embeddings @ query_emb
         retrieve_k = min(max(top_k, RAG_RETRIEVE_TOP_K), len(self.chunks))
-        candidate_idx = np.argpartition(-sim_scores, retrieve_k - 1)[:retrieve_k]
-        candidate_idx = sorted(candidate_idx.tolist(), key=lambda i: float(sim_scores[i]), reverse=True)
+        candidates = self._dense_topk(query_emb, retrieve_k)
+        candidate_idx = [i for i, _dense in candidates]
+        dense_scores = {i: dense for i, dense in candidates}
 
         combined = []
         self._lazy_load_models(require_reranker=True)
         if self._rerank_model is None:
             for i in candidate_idx:
-                dense = float(sim_scores[i])
+                dense = dense_scores[i]
                 combined.append((i, dense, None, dense))
         else:
             # Stage-2: Re-rank
@@ -780,7 +883,7 @@ class LocalKnowledgeBase:
             )
 
             for i, rr in zip(candidate_idx, rerank_scores):
-                dense = float(sim_scores[i])
+                dense = dense_scores[i]
                 rerank = float(rr)
                 # 组合分数（以重排分为主，保留召回分作微调）
                 final_score = rerank + 0.15 * dense

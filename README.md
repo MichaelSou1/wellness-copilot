@@ -140,7 +140,7 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
   - `knowledge_base/general/`
 - 自动读取 `.md / .txt / .pdf` 文档并分块(PDF 通过 `pypdf` 按页提取,支持页级 citation)
 - 使用 **Retrieve & Re-rank** 两阶段检索：
-  - Stage-1 Dense Retrieve: `BAAI/bge-m3`（多语言，支持中英跨语言检索，8192 长上下文）
+  - Stage-1 Dense Retrieve: `BAAI/bge-m3` + FAISS `IndexFlatIP`（向量已归一化，内积等价于 cosine similarity；FAISS 不可用时自动回退 NumPy）
   - Stage-2 Cross-Encoder Re-rank: `BAAI/bge-reranker-v2-m3`（基于 bge-m3 架构，原生中英跨语言重排）
 - **506 条评测集实测**（`eval/rag_eval_dataset_v2.jsonl`，LLM 反向生成）：
   - Embedding Stage：top-10 召回率 **100%**，MRR **0.9445**
@@ -152,7 +152,7 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
 
 - 模型按需懒加载，减少冷启动内存占用
 - GPU 自动启用 FP16 推理（可显著降低显存）
-- 检索索引分命名空间缓存到 `knowledge_base/<namespace>/.index_cache/`，避免重复编码
+- 检索索引分命名空间缓存到 `knowledge_base/<namespace>/.index_cache/`（`embeddings.npy` + `index.faiss` + chunk/meta），避免重复编码
 - 多知识库实例共享同一份模型权重（module-level cache），无重复加载开销
 - 通过环境变量可调 `batch_size / top_k / device`
 
