@@ -9,7 +9,6 @@ from typing import List, Dict, Optional
 
 from .config import (
     KNOWLEDGE_BASE_DIR,
-    KNOWLEDGE_BASE_SHARED_SUBDIR,
     KNOWLEDGE_BASE_AGENT_SUBDIRS,
     RAG_EMBED_BATCH_SIZE,
     RAG_EMBED_MODEL_NAME,
@@ -49,6 +48,12 @@ class Chunk:
 _EMBED_MODEL_CACHE: Dict[str, object] = {}
 _RERANK_MODEL_CACHE: Dict[str, object] = {}
 _RERANK_DISABLED: Dict[str, str] = {}  # model_name -> reason string when load failed
+
+_KNOWN_CHECKPOINT_MODES = {
+    "BAAI/bge-m3": "bin",
+    "BAAI/bge-reranker-v2-m3": "safetensors",
+    "BAAI/bge-small-zh-v1.5": "safetensors",
+}
 
 
 class LocalKnowledgeBase:
@@ -239,6 +244,65 @@ class LocalKnowledgeBase:
         os.environ.setdefault("HUGGINGFACE_HUB_CACHE", RAG_HF_HUB_CACHE)
 
     @staticmethod
+    def _torch_loads_bin_safely() -> bool:
+        try:
+            torch = importlib.import_module("torch")
+        except ImportError:
+            return False
+
+        version = torch.__version__.split("+", 1)[0]
+        parts = []
+        for raw_part in version.split(".")[:2]:
+            digits = "".join(ch for ch in raw_part if ch.isdigit())
+            parts.append(int(digits or 0))
+        while len(parts) < 2:
+            parts.append(0)
+        return tuple(parts) >= (2, 6)
+
+    @staticmethod
+    def _can_load_model_checkpoint(model_name: str, model_path: Optional[str]) -> bool:
+        mode = _KNOWN_CHECKPOINT_MODES.get(model_name)
+        if mode == "safetensors":
+            return True
+        if mode == "bin":
+            return LocalKnowledgeBase._torch_loads_bin_safely()
+
+        if model_path:
+            path = Path(model_path)
+            if any(path.glob("*.safetensors")):
+                return True
+            if any(path.glob("*.bin")):
+                return LocalKnowledgeBase._torch_loads_bin_safely()
+
+        return True
+
+    @staticmethod
+    def _hub_cache_candidates() -> List[Path]:
+        candidates = [
+            Path(RAG_HF_HUB_CACHE),
+        ]
+
+        env_cache = os.environ.get("HUGGINGFACE_HUB_CACHE")
+        if env_cache:
+            candidates.append(Path(env_cache))
+
+        hf_home = os.environ.get("HF_HOME")
+        if hf_home:
+            candidates.append(Path(hf_home) / "hub")
+
+        candidates.append(Path.home() / ".cache" / "huggingface" / "hub")
+
+        unique = []
+        seen = set()
+        for path in candidates:
+            resolved = str(path.expanduser())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            unique.append(path.expanduser())
+        return unique
+
+    @staticmethod
     def _resolve_local_model_path(
         model_name: str,
         required_files: Optional[List[str]] = None,
@@ -255,29 +319,30 @@ class LocalKnowledgeBase:
         if "/" not in model_name:
             return None
 
-        repo_dir = Path(RAG_HF_HUB_CACHE) / f"models--{model_name.replace('/', '--')}"
-        snapshots_dir = repo_dir / "snapshots"
-        if not snapshots_dir.exists():
-            return None
+        repo_dir_name = f"models--{model_name.replace('/', '--')}"
+        for hub_cache in LocalKnowledgeBase._hub_cache_candidates():
+            repo_dir = hub_cache / repo_dir_name
+            snapshots_dir = repo_dir / "snapshots"
+            if not snapshots_dir.exists():
+                continue
 
-        ref_main = repo_dir / "refs" / "main"
-        if ref_main.exists():
-            try:
-                revision = ref_main.read_text(encoding="utf-8").strip()
-                resolved = snapshots_dir / revision
-                if resolved.exists():
-                    if required_files and any(not (resolved / name).exists() for name in required_files):
-                        return None
-                    return str(resolved)
-            except Exception as e:
-                print(f"[RAG][warn] Failed to read refs/main for {model_name}: {e}")
+            ref_main = repo_dir / "refs" / "main"
+            if ref_main.exists():
+                try:
+                    revision = ref_main.read_text(encoding="utf-8").strip()
+                    resolved = snapshots_dir / revision
+                    if resolved.exists():
+                        if required_files and any(not (resolved / name).exists() for name in required_files):
+                            continue
+                        return str(resolved)
+                except Exception as e:
+                    print(f"[RAG][warn] Failed to read refs/main for {model_name}: {e}")
 
-        snapshots = sorted(p for p in snapshots_dir.iterdir() if p.is_dir())
-        if snapshots:
-            resolved = snapshots[-1]
-            if required_files and any(not (resolved / name).exists() for name in required_files):
-                return None
-            return str(resolved)
+            snapshots = sorted(p for p in snapshots_dir.iterdir() if p.is_dir())
+            for resolved in reversed(snapshots):
+                if required_files and any(not (resolved / name).exists() for name in required_files):
+                    continue
+                return str(resolved)
         return None
 
     @staticmethod
@@ -306,8 +371,15 @@ class LocalKnowledgeBase:
 
         candidates = []
         if primary_path:
-            candidates.append((RAG_EMBED_MODEL_NAME, primary_path))
-        elif not fallback_path:
+            if self._can_load_model_checkpoint(RAG_EMBED_MODEL_NAME, primary_path):
+                candidates.append((RAG_EMBED_MODEL_NAME, primary_path))
+            elif fallback_path:
+                print(
+                    "[RAG][warn] Embedding model "
+                    f"{RAG_EMBED_MODEL_NAME} is cached but requires torch>=2.6; "
+                    f"fallback to {RAG_FALLBACK_EMBED_MODEL_NAME}."
+                )
+        elif not fallback_path and self._can_load_model_checkpoint(RAG_EMBED_MODEL_NAME, None):
             candidates.append((RAG_EMBED_MODEL_NAME, None))
 
         if (
@@ -644,8 +716,8 @@ class LocalKnowledgeBase:
                     p.rmdir()
 
         self._chunk_embeddings = None
-        self.chunks = []
         self._faiss_index = None
+        self.chunks = []
         self._ready = False
 
     def build(self, force_rebuild: bool = False):

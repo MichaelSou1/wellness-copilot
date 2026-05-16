@@ -1,5 +1,6 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..llm import extract_text_content, llm
+from .fallbacks import aggregate_fallback
 from .query_rewriter import get_user_question
 
 _EXPERT_DOMAIN_LABELS = {
@@ -61,9 +62,11 @@ def aggregator_node(state):
         expert_sections=expert_sections,
     )
 
-    response = llm.invoke([
-        SystemMessage(content=_SYSTEM_PROMPT),
-        HumanMessage(content=synthesis_prompt),
-    ])
-
-    return {"draft_answer": extract_text_content(response)}
+    try:
+        response = llm.invoke([
+            SystemMessage(content=_SYSTEM_PROMPT),
+            HumanMessage(content=synthesis_prompt),
+        ])
+        return {"draft_answer": extract_text_content(response)}
+    except Exception:
+        return {"draft_answer": aggregate_fallback(current_experts, relevant)}

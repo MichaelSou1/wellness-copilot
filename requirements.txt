@@ -4,6 +4,7 @@ langchain-openai>=1.2
 langchain>=1.2
 langgraph>=1.1
 langgraph-checkpoint-sqlite>=3.0
+langchain-mcp-adapters>=0.2,<0.3
 numpy>=2.0
 faiss-cpu>=1.8.0
 sentence-transformers>=3.0

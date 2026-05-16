@@ -16,6 +16,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..llm import extract_text_content, llm
 from ..profile_store import get_user_profile as _get_profile
+from .fallbacks import default_fresh_plan, empty_replan
 from .query_rewriter import get_user_question, get_user_message_for_planner
 
 
@@ -198,6 +199,11 @@ def _replan(state) -> dict:
 
 
 def planner_node(state):
-    if state.get("replan_context"):
-        return _replan(state)
-    return _fresh_plan(state)
+    try:
+        if state.get("replan_context"):
+            return _replan(state)
+        return _fresh_plan(state)
+    except Exception:
+        if state.get("replan_context"):
+            return empty_replan()
+        return default_fresh_plan()

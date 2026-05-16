@@ -24,6 +24,11 @@ from .query_rewriter import get_user_question
 
 _VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness", "General"}
 
+# Cap mirrors dispatcher.REPLAN_CAP; once we've spent all replan slots there
+# is nothing more the judge can usefully ask for. Avoids a Dispatcher↔Judge
+# loop when the judge keeps wanting "one more".
+_REPLAN_CAP = 2
+
 _EXPERT_LABELS = {
     "Trainer": "训练教练（运动/动作/恢复）",
     "Nutritionist": "营养师（饮食/热量/营养素）",
@@ -84,6 +89,11 @@ def _parse_verdict(text: str) -> str:
 def replan_judge_node(state):
     # Remaining planned experts already decided by Planner — nothing to replan yet.
     if state.get("plan"):
+        return {}
+
+    # Cap reached — any further replan request would be dropped by the
+    # Dispatcher and create a routing loop. Skip the LLM call entirely.
+    if int(state.get("replan_count", 0) or 0) >= _REPLAN_CAP:
         return {}
 
     executed = state.get("executed") or []

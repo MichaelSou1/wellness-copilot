@@ -7,10 +7,6 @@ from .agents.turn_start import turn_start_node
 from .agents.query_rewriter import query_rewriter_node
 from .agents.planner import planner_node
 from .agents.dispatcher import dispatcher_node
-from .agents.trainer import trainer_node
-from .agents.nutritionist import nutritionist_node
-from .agents.wellness import wellness_node
-from .agents.general import general_node
 from .agents.aggregator import aggregator_node
 from .agents.critic import critic_node
 from .agents.replan_judge import replan_judge_node
@@ -18,26 +14,28 @@ from .agents.replan_judge import replan_judge_node
 conn = sqlite3.connect("checkpoints.db", check_same_thread=False)
 memory = SqliteSaver(conn)
 
-_VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness", "General"}
-
 
 def _route_after_dispatch(state: AgentState):
-    """Pick next destination based on Dispatcher's output.
+    """After Dispatcher, decide whether to replan, judge, or finish.
 
-    Order of checks:
-      1. `next == ["__REPLAN__"]` → hand control back to Planner
-      2. `next == [<expert>]` → execute that expert next
-      3. empty next + at least one expert executed → Aggregator
-      4. nothing executed (FINISH path) → END
+    - `next == ["__REPLAN__"]` → back to Planner
+    - executed anything this turn → ReplanJudge (which decides if more is needed)
+    - otherwise (FINISH path or empty plan) → END
     """
     nxt = state.get("next") or []
     if nxt and nxt[0] == "__REPLAN__":
         return "Planner"
-    if nxt and nxt[0] in _VALID_EXPERTS:
-        return nxt[0]
     if state.get("executed"):
-        return "Aggregator"
+        return "ReplanJudge"
     return END
+
+
+def _route_after_judge(state: AgentState):
+    """ReplanJudge either sets `replan_request` (→ Dispatcher → Planner)
+    or stays silent (→ Aggregator)."""
+    if state.get("replan_request"):
+        return "Dispatcher"
+    return "Aggregator"
 
 
 workflow = StateGraph(AgentState)
@@ -46,10 +44,6 @@ workflow.add_node("TurnStart", turn_start_node)
 workflow.add_node("QueryRewriter", query_rewriter_node)
 workflow.add_node("Planner", planner_node)
 workflow.add_node("Dispatcher", dispatcher_node)
-workflow.add_node("Trainer", trainer_node)
-workflow.add_node("Nutritionist", nutritionist_node)
-workflow.add_node("Wellness", wellness_node)
-workflow.add_node("General", general_node)
 workflow.add_node("ReplanJudge", replan_judge_node)
 workflow.add_node("Aggregator", aggregator_node)
 workflow.add_node("Critic", critic_node)
@@ -66,13 +60,13 @@ workflow.add_edge("Planner", "Dispatcher")
 workflow.add_conditional_edges(
     "Dispatcher",
     _route_after_dispatch,
-    ["Planner", "Trainer", "Nutritionist", "Wellness", "General", "Aggregator", END],
+    ["Planner", "ReplanJudge", END],
 )
-
-# 每个专家执行完先过 ReplanJudge，由判官决定是否设置 replan_request，再到 Dispatcher
-for expert in ["Trainer", "Nutritionist", "Wellness", "General"]:
-    workflow.add_edge(expert, "ReplanJudge")
-workflow.add_edge("ReplanJudge", "Dispatcher")
+workflow.add_conditional_edges(
+    "ReplanJudge",
+    _route_after_judge,
+    ["Dispatcher", "Aggregator"],
+)
 
 workflow.add_edge("Aggregator", "Critic")
 workflow.add_edge("Critic", END)

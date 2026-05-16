@@ -23,8 +23,14 @@ def _get_agent_kb(agent: str) -> LocalKnowledgeBase:
 
 
 def _retrieve_by_agent(query: str, top_k: int, agent: str) -> str:
-    kb = _get_agent_kb(agent)
-    results = kb.retrieve(query=query, top_k=top_k)
+    try:
+        kb = _get_agent_kb(agent)
+        results = kb.retrieve(query=query, top_k=top_k)
+    except Exception as e:
+        return (
+            "[RAG Error] 本地知识库暂不可用，请基于通用安全知识保守回答。"
+            f"原因: {type(e).__name__}"
+        )
     if not results:
         return "[RAG] 未命中本地知识库，请尝试改写查询或补充 knowledge_base 文档。"
 
@@ -61,6 +67,12 @@ def retrieve_wellness_knowledge(query: str, top_k: int = 4):
 def retrieve_general_knowledge(query: str, top_k: int = 4):
     """通用助手专用：从 general 知识库检索常识/健康通识。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="general")
+
+
+@tool
+def retrieve_safety_guidelines(query: str, top_k: int = 3):
+    """安全审核员专用：从 safety 知识库检索运动伤病/症状就医/饮食极端等安全条目。"""
+    return _retrieve_by_agent(query=query, top_k=top_k, agent="safety")
 
 
 @tool
@@ -106,6 +118,7 @@ tools = [
     retrieve_nutritionist_knowledge,
     retrieve_wellness_knowledge,
     retrieve_general_knowledge,
+    retrieve_safety_guidelines,
     calculate_tdee,
     get_user_profile,
     update_user_profile,

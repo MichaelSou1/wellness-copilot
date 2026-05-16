@@ -1,15 +1,20 @@
 # Health Guide Agent
 
-基于 LangGraph 的**多 Agent 健康管理系统**，采用 **Plan-and-Execute + 动态 Replan + 安全审核** 的协作架构：
+基于 LangGraph 的**多 Agent 健康管理系统**，采用 **父子 Agent + Plan-and-Execute + 动态 Replan + 安全审核** 的协作架构：
 
 - 多轮会话上下文管理（TurnStart：轮边界清理 + 长历史摘要压缩 + 跨进程会话恢复）
 - 多轮指代消解（QueryRewriter）
 - Profile-aware Planner：画像摘要 + 情节记忆双重注入，实现伤病/目标联动路由
-- 顺序执行 + 共享 scratchpad（专家之间能看到彼此要点）
-- Meta-LLM 动态补员（ReplanJudge 决定是否追加专家）
+- **父子 Agent + 上下文隔离**：Dispatcher 作为父 agent，把每个专家作为 callable 调用；专家拿到的是隔离的 `SystemMessage(裁剪画像 + 同伴 scratchpad) + HumanMessage(改写后的问题)`，不再看到全量 messages 历史
+- **并行 fan-out**：多专家计划在 Dispatcher 内通过 ThreadPoolExecutor 并行执行；单专家直接内联
+- **RAG 按需调用**：检索工具放在专家 ReAct 工具列表里，是否检索由专家自行判断（寒暄/纯个人信息不再无脑预检索）
+- **按角色裁剪 profile**：每个专家只看到与自己领域相关的画像字段（Trainer 不看饮食偏好、Nutritionist 不看伤病明细等）
+- Meta-LLM 动态补员（ReplanJudge 在 Dispatcher 完成一批专家后判断是否追加，每批最多 1 次）
 - 综合输出 + 安全审核（Aggregator → Critic）
+- **Critic 接入 Safety KB**：审核前自动检索 `knowledge_base/safety/` 红线（伤病负重、症状就医、饮食极端）作为硬约束注入 prompt
 - 两层长期记忆：语义记忆（profile_store）+ 情节记忆（episode_store，跨 thread 持久化）
-- 本地 RAG 知识增强（各 agent 独立知识库，可追溯来源）
+- 本地 RAG 知识增强（各 agent 独立知识库 + 安全审核专用 safety 库，可追溯来源）
+- 三层异常兜底（节点级降级 + RAG 工具降级 + Critic 故障安全提示）
 - 可观测评估（路由、工具使用、时延、引用率）
 
 ## 架构总览
@@ -19,21 +24,31 @@ flowchart TD
     User([用户消息]) --> TS[TurnStart<br/>轮边界清理 + 长历史摘要]
     TS --> QR[QueryRewriter<br/>多轮指代消解]
     QR -->|contextualized_query| Planner[Planner<br/>纯 LLM 决策]
-    Planner -->|plan: ordered list| Dispatcher{Dispatcher}
+    Planner -->|plan: ordered list| Dispatcher
 
-    Dispatcher -->|pop head| Expert[/Trainer · Nutritionist<br/>Wellness · General/]
-    Expert --> Judge{{ReplanJudge<br/>meta-LLM}}
-    Judge -->|CONTINUE| Dispatcher
+    subgraph Dispatcher [Dispatcher · 父 Agent · 并行 fan-out]
+      direction LR
+      Trainer[Trainer<br/>ReAct + RAG 按需]
+      Nutritionist[Nutritionist<br/>ReAct + RAG 按需]
+      Wellness[Wellness<br/>ReAct + RAG 按需]
+      General[General<br/>ReAct + RAG 按需]
+    end
+
+    Dispatcher --> Judge{{ReplanJudge<br/>meta-LLM<br/>每批最多 1 次}}
+    Judge -->|CONTINUE| Aggregator[Aggregator<br/>合成草稿]
     Judge -->|REPLAN<br/>cap = 2| Planner
-
-    Dispatcher -->|plan 空| Aggregator[Aggregator<br/>合成草稿]
-    Aggregator --> Critic[Critic<br/>安全审核]
+    Aggregator --> Critic[Critic<br/>安全审核 + Safety KB]
     Critic --> Out([最终回答])
 
-    %% 共享 scratchpad（侧通道）
-    Expert -. agent_notes .-> Scratchpad[(共享 scratchpad<br/>turn-scoped)]
-    Scratchpad -. peer notes .-> Expert
+    %% 父 agent 注入的隔离上下文（用一个旁路节点说明，避免在子图内部画 4 条重叠的标签线）
+    Ctx[(隔离子上下文<br/>SystemMessage = 裁剪 profile + peer notes<br/>HumanMessage = contextualized_query)]
+    Ctx -. 注入 .-> Dispatcher
+
+    %% scratchpad 汇聚 + Critic / Aggregator 消费
+    Dispatcher -. agent_notes .-> Scratchpad[(共享 scratchpad<br/>turn-scoped)]
+    Scratchpad -. notes .-> Aggregator
     Scratchpad -. notes .-> Critic
+    SafetyKB[(knowledge_base/safety<br/>红线条目)] -. retrieve_safety_guidelines .-> Critic
 
     %% 长期持久化
     TS -. RemoveMessage + summary .-> History[(messages 历史<br/>SqliteSaver checkpoint)]
@@ -47,40 +62,61 @@ flowchart TD
     classDef store fill:#f1f3f5,stroke:#868e96,stroke-width:1px,stroke-dasharray:3 3;
     class TS,QR,Planner,Aggregator,Critic ctrl;
     class Judge meta;
-    class Expert expert;
-    class Scratchpad,History,EpStore store;
+    class Trainer,Nutritionist,Wellness,General expert;
+    class Scratchpad,History,EpStore,SafetyKB,Ctx store;
 ```
 
-> 实线 = 控制流；虚线 = 状态侧通道。Replan 路径**直接 Dispatcher → Planner**，不再经过 TurnStart / QueryRewriter——否则会清掉本轮已积累的 plan/scratchpad，且 contextualized_query 在同一用户轮内必须稳定。
+> 实线 = 控制流；虚线 = 状态侧通道。**专家不再是独立的 LangGraph 节点**，而是 Dispatcher（父 agent）以函数方式调用的子 agent；同一批计划内的多专家通过 ThreadPoolExecutor 并行执行。Replan 路径**直接 Dispatcher → Planner**，不再经过 TurnStart / QueryRewriter——否则会清掉本轮已积累的 plan/scratchpad，且 contextualized_query 在同一用户轮内必须稳定。
 
 ## 核心能力
 
 ### 1) Plan-and-Execute 多 Agent 协作
 
-| 节点 | 角色 | 关键设计 |
+| 节点 / 角色 | 类型 | 关键设计 |
 | --- | --- | --- |
-| **TurnStart** | 轮边界清理 + 上下文压缩 | 重置 turn-scoped 字段（plan/executed/scratchpad/tool 计数/replan_*）；当消息数 >20 时用 LLM 把头部历史压缩为摘要，发 `RemoveMessage` 删除原文、注入稳定 id 的 SystemMessage |
-| **QueryRewriter** | 多轮指代消解 | 把"那个怎么吃""再练一次行吗"改写成自包含问题；首轮 passthrough 不调 LLM；能读取 TurnStart 注入的历史摘要 |
-| **Planner** | 任务规划 | 纯 LLM 决策（无关键词硬编码）；routing message 注入**用户画像摘要**（伤病/目标）+ **近期情节记忆**（最近 5 条跨 thread 历史），实现伤病联动路由；按 Trainer→Nutritionist→Wellness→General 推荐顺序排序；replan 模式追加专家时不重复已执行角色 |
-| **Dispatcher** | 顺序执行 | 从 `plan` 头部出列，appending 到 `executed`；处理 replan 请求（带 `REPLAN_CAP=2` 限制防止无限循环） |
-| **Trainer** | 力量训练教练 | `calculate_tdee` + `retrieve_trainer_knowledge` + 画像读写 |
-| **Nutritionist** | 膳食营养师 | `retrieve_nutritionist_knowledge` + 画像读写 |
-| **Wellness** | 身心康复师 | `retrieve_wellness_knowledge` + 画像读写 |
-| **General** | 通用助理 | 寒暄、澄清、`retrieve_general_knowledge` |
-| **ReplanJudge** | 元 LLM 补员判官 | 每个专家执行完后，独立调用 LLM 判断是否需要追加其他专家；输出 `VERDICT: CONTINUE` 或 `VERDICT: REPLAN / REASON: ...` |
-| **Aggregator** | 综合输出 | 把多个专家的回答合成为一份自然流畅的草稿（单专家场景直接透传） |
-| **Critic** | 安全审核 | 读草稿 + 共享 scratchpad + 用户画像，检查健康安全、跨专家矛盾、越界建议；只有真的有问题才 REVISE；每轮末尾将本轮问题/专家/回答摘要写入 `episode_store`（情节记忆写入点） |
+| **TurnStart** | LangGraph 节点 | 重置 turn-scoped 字段（plan/executed/scratchpad/tool 计数/replan_*）；当消息数 >20 时用 LLM 把头部历史压缩为摘要，发 `RemoveMessage` 删除原文、注入稳定 id 的 SystemMessage |
+| **QueryRewriter** | LangGraph 节点 | 把"那个怎么吃""再练一次行吗"改写成自包含问题；首轮 passthrough 不调 LLM；能读取 TurnStart 注入的历史摘要 |
+| **Planner** | LangGraph 节点 | 纯 LLM 决策（无关键词硬编码）；routing message 注入**用户画像摘要**（伤病/目标）+ **近期情节记忆**（最近 5 条跨 thread 历史），实现伤病联动路由；按 Trainer→Nutritionist→Wellness→General 推荐顺序排序；replan 模式追加专家时不重复已执行角色 |
+| **Dispatcher** | 父 Agent / LangGraph 节点 | 一次性消费整条 `plan`：单专家直接 inline，多专家走 `ThreadPoolExecutor` 并行 fan-out；每个子调用都建立**隔离上下文**（裁剪 profile + 同伴 scratchpad + contextualized query），不暴露父 agent 的 messages 历史；处理 replan 请求（`REPLAN_CAP=2`） |
+| **Trainer** *(子 agent)* | Dispatcher 调用的 callable | `calculate_tdee` + `retrieve_trainer_knowledge`（按需）+ 画像读写；可选接入 **wger MCP**（动作百科）；profile 字段白名单只含 age/weight/height/injuries/goal |
+| **Nutritionist** *(子 agent)* | Dispatcher 调用的 callable | `retrieve_nutritionist_knowledge`（按需）+ 画像读写；可选接入 **USDA FoodData Central MCP**（食物宏量素）；profile 字段白名单只含 age/weight/height + 完整 dietary_context |
+| **Wellness** *(子 agent)* | Dispatcher 调用的 callable | `retrieve_wellness_knowledge`（按需）+ 画像读写；profile 字段白名单只含 age/injuries + 完整 mental_state |
+| **General** *(子 agent)* | Dispatcher 调用的 callable | 寒暄、澄清、`retrieve_general_knowledge`（按需） |
+| **ReplanJudge** | LangGraph 节点 | Dispatcher 完成一批专家后调用一次（不再 per-expert），LLM 判断是否需要追加；输出 `VERDICT: CONTINUE` 或 `VERDICT: REPLAN / REASON: ...`；自带 cap 检查，防止 Dispatcher↔Judge 死循环 |
+| **Aggregator** | LangGraph 节点 | 把多个专家的回答合成为一份自然流畅的草稿（单专家场景直接透传）；并行 fan-out 下同批专家彼此不见 scratchpad，由 Aggregator 做跨域整合；合成 LLM 失败时拼接已完成专家回答 |
+| **Critic** | LangGraph 节点 | 读草稿 + 共享 scratchpad + 用户画像；**调用 `retrieve_safety_guidelines` 拉取 safety KB 红线**注入审核 prompt；可选接入 **medical-mcp**（FDA/PubMed/WHO/RxNorm 权威医学参考，命中药物/症状关键词时前置注入）；检查健康安全、跨专家矛盾、越界建议；只有真的有问题才 REVISE；审核 LLM 失败且命中风险信号时给草稿前置安全提示；每轮末尾将本轮问题/专家/回答摘要写入 `episode_store`（情节记忆写入点） |
 
-#### 共享 Scratchpad
+#### 共享 Scratchpad（跨批次注入）
 
-每个专家执行完会写一条 ≤280 字的精简要点到 `state.agent_notes`，由后执行的专家与下游节点（Critic / 跨轮）共享。例如 Trainer 在 plan 中先执行后会写"今日推荐 20 分钟轻度有氧；用户膝盖未恢复，避免深蹲"，Nutritionist 之后看到这条要点就能给出对应的恢复餐建议。
+每个专家执行完会写一条 ≤280 字的精简要点到 `state.agent_notes`，由下游节点（Critic / 跨轮）共享。
+
+- **同一批 plan 内的多专家并行执行**，彼此看不到对方 scratchpad；Aggregator 在合成阶段统一做跨域整合
+- **跨批次（replan 路径）**：第二批专家被 Dispatcher 调起时，前一批的 scratchpad 会以 peer notes 形式注入子 agent 的 SystemMessage，供其参考
+
+例如 Trainer 在第一批执行后写"今日推荐 20 分钟轻度有氧；用户膝盖未恢复，避免深蹲"，若 ReplanJudge 后续追加 Nutritionist，第二批 Nutritionist 就能看到这条要点并给出对应的恢复餐建议。
 
 #### 动态 Replan
 
-- 每个专家完成 → ReplanJudge 元 LLM 调用 → 决定是否要补叫专家
-- Judge 决定 REPLAN → 控制权回到 Planner，Planner 看到 `replan_context` + 已执行列表，追加新专家
-- `REPLAN_CAP=2` 防止无限循环（在 Dispatcher 层强制）
+- Dispatcher 执行完整批专家 → ReplanJudge 元 LLM 调用一次 → 决定是否要补叫专家
+- Judge 决定 REPLAN → 控制权回到 Dispatcher（再 → Planner），Planner 看到 `replan_context` + 已执行列表，追加新专家
+- `REPLAN_CAP=2` 防止无限循环（Dispatcher 与 ReplanJudge 双层守护，避免 Dispatcher↔Judge 死循环）
 - 之所以用独立 judge 节点而非让专家自评：专家自评对 prompt 遵循依赖太高，独立 judge 更可靠
+
+#### 父子 Agent + 上下文隔离
+
+旧版本：每个专家作为 LangGraph 节点，能看到 `state["messages"]` 的全量历史（包含其他专家的 tool_calls、ReAct trace），上下文噪声大、token 消耗高。
+
+新版本：Dispatcher 作为父 agent 持有 `EXPERT_RUNNERS = {role: run_*}` 字典，调用专家时**只给一对消息**：
+
+```
+SystemMessage(裁剪 profile + peer scratchpad + 角色指令 + 可选工具列表说明)
+HumanMessage(contextualized_query)
+```
+
+效果：
+- 子 agent 视野干净，专注自己的领域回答，不需要 filter 别人的 trace
+- 任何一个 expert 的 ReAct loop 只对自己的 sub-thread 有副作用，不会污染全局 messages
+- 子 agent 失败时由 Dispatcher 统一 catch + 走 `expert_error_update` 兜底，不会拖垮 graph
 
 ### 2) 多轮会话上下文管理
 
@@ -138,6 +174,7 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
   - `knowledge_base/nutritionist/`
   - `knowledge_base/wellness/`
   - `knowledge_base/general/`
+  - `knowledge_base/safety/` — **Critic 专用安全红线**（伤病负重、症状就医、饮食极端）
 - 自动读取 `.md / .txt / .pdf` 文档并分块(PDF 通过 `pypdf` 按页提取,支持页级 citation)
 - 使用 **Retrieve & Re-rank** 两阶段检索：
   - Stage-1 Dense Retrieve: `BAAI/bge-m3` + FAISS `IndexFlatIP`（向量已归一化，内积等价于 cosine similarity；FAISS 不可用时自动回退 NumPy）
@@ -145,7 +182,8 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
 - **506 条评测集实测**（`eval/rag_eval_dataset_v2.jsonl`，LLM 反向生成）：
   - Embedding Stage：top-10 召回率 **100%**，MRR **0.9445**
   - Rerank Stage：首位命中率 **94.3%**，MRR **0.9677**
-- 工具：`retrieve_trainer_knowledge` / `retrieve_nutritionist_knowledge` / `retrieve_wellness_knowledge` / `retrieve_general_knowledge`（各 agent 专用，直接访问各自私有库）
+- **按需调用**：4 个领域工具 `retrieve_*_knowledge` 直接放进对应专家的 ReAct 工具列表，由专家根据问题自行决定是否检索（旧版本是无条件 pre-fetch；新版本寒暄 / 纯个人信息类问题不再产生 embedding 开销）
+- **Critic 主动检索**：`retrieve_safety_guidelines` 在 Critic 节点内显式调用一次，把命中的安全红线作为硬约束注入审核 prompt
 - 返回内容包含 `source/chunk/score`（并保留 dense/rerank 子分数），便于可追溯
 
 #### 端侧优化（RTX 4060 8GB 友好）
@@ -165,6 +203,115 @@ QueryRewriter 也被改造为可识别历史摘要消息，保证压缩后多轮
   - `citation_rate`
   - 路由分布、工具调用分布
 - 会话结束自动导出：`reports/latest_metrics.json`
+
+### 6) 异常兜底与故障降级
+
+Agent 链路较长，任一 LLM、RAG、工具或持久化环节失败都可能拖垮整轮对话。本项目现在采用三层兜底，目标是“局部降级、整轮不中断、健康风险不静默放行”：
+
+| 层级 | 覆盖范围 | 降级行为 |
+|---|---|---|
+| **节点级降级** | Planner / 专家 / Aggregator / Critic / CLI 主循环 | Planner fresh 失败时默认路由 General；replan 失败时跳过追加；专家失败时写入保守回答、scratchpad 和 `ERROR:<Expert>:<ExceptionType>` 工具标记；Aggregator 失败时拼接已完成专家回答；`main.py` 捕获整轮 graph、指标写入、报告导出异常 |
+| **RAG 工具降级** | `retrieve_*_knowledge` | KB 初始化、索引构建、embedding / reranker 推理失败时返回 `[RAG Error] 本地知识库暂不可用...`，由专家基于通用安全知识保守回答；RAG 未命中仍保留原 `[RAG] 未命中...` 行为 |
+| **Critic 故障安全提示** | Critic LLM 调用失败 | 若用户问题、草稿、scratchpad 或画像命中胸痛/胸闷、心率异常、头晕、持续疼痛、肿胀、术后/ACL/半月板/韧带、用药剂量、极端低卡等风险信号，则保留草稿并前置“安全提示”；否则放行草稿并记录 `critic_verdict=ERROR:<ExceptionType>` |
+| **MCP 工具降级** | wger / USDA / medical 三个社区 MCP 子进程 | `npx` 子进程起不来、stdio 握手超时、API key 无效、网络失败均会让对应 server 进入空工具列表；专家不会失败，照常用 RAG + 内置工具回答；Critic 拿不到医学参考时也只是不前置注入，正常审核 |
+
+兜底公共逻辑集中在 `health_guide/agents/fallbacks.py`，便于后续扩展风险关键词、专家兜底话术和聚合兜底格式。
+
+## 社区 MCP 工具接入（可选）
+
+为 Trainer / Nutritionist / Critic 三个角色接入了**免费、社区维护**的 MCP 工具服务器，把外部权威数据源（动作百科、USDA 食物库、FDA/PubMed/WHO/RxNorm）以 LangChain 工具的形式注入到对应专家的 ReAct 工具列表 / Critic 的审核 prompt 中。功能默认关闭，需要显式开启对应环境变量。
+
+### 系统依赖
+
+- **Node.js ≥ 18**（用 `npx` 启动 MCP 子进程；唯一新增系统依赖）
+- USDA MCP 还需要一次性 clone：
+
+  ```bash
+  bash scripts/setup_mcp_servers.sh
+  ```
+
+  脚本会 clone `jlfwong/food-data-central-mcp-server` 到 `~/.cache/mcp-servers/usda-fdc` 并 `npm install`，最后打印需要填到 `.env` 的 `MCP_USDA_SCRIPT_PATH`。
+
+- USDA 还需要一个免费 API key（[fdc.nal.usda.gov/api-key-signup](https://fdc.nal.usda.gov/api-key-signup)，邮箱注册 30 秒拿到）
+
+### 启用方式
+
+在 `.env` 中按需打开三个开关（任一可单独启用）：
+
+```ini
+MCP_TRAINER_ENABLED=true
+MCP_NUTRITIONIST_ENABLED=true
+MCP_CRITIC_ENABLED=true
+
+USDA_API_KEY=<你申请到的 key>
+MCP_USDA_SCRIPT_PATH=<setup 脚本打印的路径>
+```
+
+`python main.py` 启动时会 spawn 已启用的 MCP 子进程，全程长驻；启动日志会打印 `[MCP] available: ['medical', 'usda', 'wger']`。任一 server 起不来会单独打印失败原因，但**不影响其他 server 和 RAG 兜底**。
+
+### MCP 工具清单
+
+#### Trainer 用：wger MCP（[`@juxsta/wger-mcp`](https://github.com/Juxsta/wger-mcp)，5 个免认证工具）
+
+> wger 是开源健身百科（[wger.de](https://wger.de)）。MCP 总共暴露 14 个工具，其中后 9 个 workout-management 工具需要 wger 账号；本项目代码层过滤只保留下面 5 个**免认证读工具**，避免 LLM 触发会失败的写操作。
+
+| 工具名 | 说明 |
+|---|---|
+| `search_exercises` | 按关键词 / 肌群 / 器械搜索动作（返回动作列表 + 简介） |
+| `get_exercise_details` | 拿单个动作的完整详情：要领、目标肌群、辅助肌群、所需器械、变体、图示 |
+| `list_categories` | 列出动作分类字典（如 Abs / Chest / Legs / Back / Shoulders / Arms） |
+| `list_muscles` | 列出所有肌群（含拉丁名 + 是否为主动肌） |
+| `list_equipment` | 列出所有器械（杠铃 / 哑铃 / 弹力带 / 自重 ...） |
+
+#### Nutritionist 用：USDA FoodData Central MCP（[`jlfwong/food-data-central-mcp-server`](https://github.com/jlfwong/food-data-central-mcp-server)，1 个工具）
+
+> USDA FoodData Central 是美国农业部维护的食物数据库，覆盖约 60 万条食品（生鲜 + 品牌包装 + 实验室分析）。
+
+| 工具名 | 说明 |
+|---|---|
+| `search-foods` | 按食物名搜索（query=英文），返回 `foodNutrients` 数组，含每 100g 的热量 / 蛋白 / 碳水 / 脂肪 / 纤维 / 钠 / 钾 / 维生素 / 矿物质等。可选参数：`dataType`（限定 Branded / Foundation / SR Legacy 等子库）、`pageSize` / `pageNumber` / `sortBy` / `sortOrder` / `brandOwner` / `tradeChannel` / `startDate` / `endDate` |
+
+#### Critic 用：medical-mcp（[`medical-mcp`](https://github.com/JamesANZ/medical-mcp)，10 个工具全免认证）
+
+> medical-mcp 聚合 FDA openFDA / PubMed E-utilities / WHO / RxNorm / Google Scholar / Cochrane / ClinicalTrials.gov 等公开医学源，对 LLM 友好统一接口。当前实现里 Critic 只在命中药物/症状关键词时调用 `search-medical-literature` 做前置注入（避免 prompt 膨胀），其余 9 个工具已加载，可在后续扩展中按需调用。
+
+| 类别 | 工具名 | 说明 |
+|---|---|---|
+| 药物 | `search-drugs` | 按通用名 / 商品名搜索 FDA 药品 |
+| 药物 | `get-drug-details` | 获取单个药品的标签、警示、剂型、不良反应 |
+| 药物 | `search-drug-nomenclature` | RxNorm 标准化药名查询（同义词、组分） |
+| 文献 | `search-medical-literature` | PubMed 文献搜索（**Critic 当前默认使用**） |
+| 文献 | `get-article-details` | 拿单篇 PubMed 文献的摘要、作者、期刊、引用信息 |
+| 文献 | `search-medical-journals` | 按期刊范围检索（Europe PMC） |
+| 文献 | `search-google-scholar` | Google Scholar 学术检索（puppeteer 抓 HTML） |
+| 文献 | `search-medical-databases` | 跨 Cochrane / ClinicalTrials.gov 聚合搜索 |
+| 指南 | `search-clinical-guidelines` | 临床指南检索（NCCN / AHA / WHO 等） |
+| 统计 | `get-health-statistics` | WHO 全球健康统计指标 |
+
+> 注 1：`search-google-scholar` 和 `search-medical-databases` 走 puppeteer 启 headless Chrome 抓 HTML，需要 Chrome 运行时依赖。**在 hga conda env 内一次性装齐**（不污染系统 apt）：
+>
+> ```bash
+> conda activate hga
+> conda install -y -c conda-forge \
+>   nspr nss dbus atk-1.0 at-spi2-atk libcups \
+>   libxkbcommon xorg-libxcomposite xorg-libxdamage xorg-libxfixes xorg-libxrandr \
+>   libgbm pango alsa-lib libdrm xorg-libxshmfence gtk3 \
+>   xorg-libxext xorg-libxscrnsaver
+> ```
+>
+> 装好后 `mcp_client.py` 会自动把 `$CONDA_PREFIX/lib` 注入到 medical-mcp 子进程的 `LD_LIBRARY_PATH`，puppeteer 下载的 Chromium 就能加载到这些 `.so`。**没装这些库时这两个工具会失败但 graceful 降级**（Critic 只默认调用 `search-medical-literature`，那个走 PubMed XML API、不依赖 puppeteer，所以零影响）。
+>
+> 注 2：medical-mcp 默认把 startup banner + 进度日志写到 stdout 污染 MCP 协议，setup 脚本会自动 sed 把它们改成 `console.error` 走 stderr。
+
+### Critic 注入触发条件
+
+为避免无关问题污染审核 prompt，Critic 只在用户问题或草稿命中**药物/症状/术后等多字关键词**（如 `布洛芬 / 对乙酰氨基酚 / 阿司匹林 / 抗生素 / 剂量 / mg / 胸痛 / 胸闷 / 心率过快 / 心率不齐 / 血压 / 血糖 / 失眠 / 抑郁 / 焦虑 / 过敏 / 怀孕 / 哺乳 / 术后 / 韧带`，详见 `health_guide/agents/critic.py::_MEDICAL_PATTERN`）时才调 `search-medical-literature`。命中并成功注入后，`critic_verdict` 会带 `+MED` 后缀（如 `PASS+MED` / `REVISE+MED`），便于评测脚本统计医学参考的实际触发率。
+
+### 架构要点
+
+- **进程内长驻**：`main.py` 启动时 spawn 三个 npx 子进程，全程复用，避免每次工具调用都重启 Node（冷启动 ~500ms 起步）。
+- **同步包装**：`langchain-mcp-adapters` 的工具是 async-only；`health_guide/mcp_client.py` 内开一个后台 daemon thread 跑专用 event loop，每次同步工具调用通过 `run_coroutine_threadsafe` 派发到该 loop，Dispatcher 的 ThreadPoolExecutor 并行 fan-out 共享这一个 loop，无任何 event loop 嵌套问题。
+- **故障隔离**：握手 / 调用失败一律转成 `[MCP Error] ...` 字符串返回给 LLM（和现有 `[RAG Error]` 风格对称），不抛异常上浮，专家照样能跑完。
 
 ## 端到端输出质量评测
 
@@ -585,6 +732,7 @@ python scripts/compare_embedders.py \
 - `knowledge_base/nutritionist/` — 饮食/营养/热量/体成分
 - `knowledge_base/wellness/` — 睡眠/压力/情绪/慢病预防
 - `knowledge_base/general/` — 通识/寒暄/常见问题
+- `knowledge_base/safety/` — Critic 红线（伤病负重、症状就医、饮食极端等硬约束条目）
 
 支持的文件类型：
 
@@ -630,46 +778,52 @@ Health-Guide-Agent/
 ├── eval/                            # 评测数据集
 │   ├── rag_eval_dataset_v2.jsonl    # RAG 召回评测集（506 条）
 │   └── output_eval_dataset.jsonl   # 端到端输出质量评测集（30 条，8 类场景）
-├── scripts/                         # 索引构建 / 评测 / smoke 测试
+├── scripts/                         # 索引构建 / 评测 / smoke 测试 / MCP setup
 │   ├── build_rag_index.py
 │   ├── evaluate_rag.py
 │   ├── evaluate_output.py           # 端到端输出质量评测（断言 + LLM-as-Judge + --rerun-bad）
 │   ├── generate_eval_dataset.py
+│   ├── setup_mcp_servers.sh         # 一键 clone+install jlfwong USDA MCP（npm 未发布）
 │   ├── smoke_coreference.py         # 多轮指代消解端到端
 │   ├── smoke_dynamic_replan.py      # ReplanJudge 元 LLM 判官
+│   ├── smoke_error_fallbacks.py     # 长链路异常兜底（Planner/RAG/专家/Aggregator/Critic）
+│   ├── smoke_mcp_tools.py           # MCP registry 冷启动 + 工具发现 + 抽样调用
 │   ├── smoke_plan_execute.py        # Planner → Dispatcher → 顺序专家
 │   └── smoke_critic_scratchpad.py   # Critic + 共享 scratchpad
 └── health_guide/
-    ├── graph.py                     # LangGraph 拓扑（TurnStart → QueryRewriter → Planner → Dispatcher → 专家 → ReplanJudge → ... → Aggregator → Critic）
+    ├── graph.py                     # LangGraph 拓扑（TurnStart → QueryRewriter → Planner → Dispatcher → ReplanJudge → Aggregator → Critic）
     ├── state.py                     # AgentState + 自定义 reducer（__RESET__ 哨兵 / add_messages / take-last）
     ├── llm.py                       # 所有节点共用一个 ChatOpenAI 实例
-    ├── tools.py                     # 各 agent 专用 RAG 工具 + 画像工具 + calculate_tdee
+    ├── tools.py                     # 各 agent 专用 RAG 工具 + safety 工具 + 画像工具 + calculate_tdee
+    ├── mcp_client.py                # 社区 MCP server 注册表（wger / USDA / medical），同步包装 + 故障隔离
     ├── rag.py                       # LocalKnowledgeBase：两阶段检索（Dense Retrieve + Cross-Encoder Rerank）
-    ├── profile_store.py             # 语义记忆：跨会话用户画像存储
+    ├── profile_store.py             # 语义记忆：跨会话用户画像存储 + 按角色裁剪 profile_to_prompt_text_for()
     ├── episode_store.py             # 情节记忆：跨 thread 对话历史（Critic 写入，TurnStart 读取）
     ├── observability.py             # 路由/工具/时延/引用率 指标
-    ├── config.py                    # .env 解析（含 EPISODE_STORE_PATH）
+    ├── config.py                    # .env 解析（含 EPISODE_STORE_PATH + safety 子目录 + MCP 开关）
     └── agents/
         ├── turn_start.py            # 轮边界清理 + 长历史 LLM 摘要压缩 + 情节记忆注入（episode_context）
         ├── query_rewriter.py        # 多轮指代消解 + 共享 get_user_question
         ├── planner.py               # Profile-aware 规划：注入画像摘要 + 情节记忆；fresh / replan 双模式
-        ├── dispatcher.py            # 顺序执行 + replan 触发 + cap
-        ├── trainer.py / nutritionist.py / wellness.py / general.py
-        ├── replan_judge.py          # 元 LLM 补员判官
-        ├── aggregator.py            # 多专家合成草稿
-        ├── critic.py                # 安全审核（PASS / REVISE）+ 情节记忆写入
+        ├── dispatcher.py            # 父 Agent：批量并行调用专家 callable + 隔离上下文 + replan 路由 + cap
+        ├── trainer.py / nutritionist.py / wellness.py / general.py   # 不再是图节点；导出 run_*() 由 Dispatcher 调用，RAG 工具按需
+        ├── replan_judge.py          # 元 LLM 补员判官（每批 plan 完成后调用一次，自带 cap 检查）
+        ├── aggregator.py            # 多专家合成草稿（并行 fan-out 下负责跨域整合）
+        ├── critic.py                # 安全审核（PASS / REVISE）+ Safety KB 检索 + 情节记忆写入
+        ├── fallbacks.py             # 节点/RAG/Critic 异常兜底 helper
         └── _scratchpad.py           # 共享 scratchpad helper
 ```
 
 ## 端到端测试（smoke）
 
-仓库带了 4 个 smoke 脚本，覆盖各个多 Agent 特性：
+仓库带了 5 个 smoke 脚本，覆盖各个多 Agent 特性和异常兜底：
 
 ```bash
+python scripts/smoke_error_fallbacks.py     # Planner/RAG/专家/Aggregator/Critic 异常兜底
 python scripts/smoke_critic_scratchpad.py   # Critic + 共享 scratchpad
 python scripts/smoke_plan_execute.py        # Plan-and-Execute 顺序协作
 python scripts/smoke_dynamic_replan.py      # 元 LLM ReplanJudge + 动态补员
 python scripts/smoke_coreference.py         # 多轮指代消解（QueryRewriter）
 ```
 
-每个脚本既包含**确定性单元测试**（直接调用节点函数），又包含**端到端真实 LLM 调用**（验证完整 graph 收敛）。`smoke_dynamic_replan.py` 还用 stub 强制触发一次 replan，验证 Planner 二次规划能正确补员。
+大多数脚本既包含**确定性单元测试**（直接调用节点函数），又包含**端到端真实 LLM 调用**（验证完整 graph 收敛）。`smoke_dynamic_replan.py` 用 stub 强制触发一次 replan，验证 Planner 二次规划能正确补员；`smoke_error_fallbacks.py` 用 monkeypatch 触发 Planner、RAG、专家、Aggregator、Critic 的失败路径，验证局部异常不会中断整轮链路。

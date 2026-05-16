@@ -1,4 +1,4 @@
-name: health-guide-rag
+name: hga
 channels:
   - pytorch
   - nvidia
@@ -7,7 +7,7 @@ channels:
 dependencies:
   - python=3.10
   - pip
-  - pytorch>=2.4
+  - pytorch>=2.6
   - pytorch-cuda=12.1
   - pip:
       - -r requirements.txt
