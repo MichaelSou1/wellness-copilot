@@ -25,8 +25,15 @@ from ..profile_store import (
     profile_to_prompt_text,
 )
 from ..tools import retrieve_safety_guidelines
+from .dispatcher import REPLAN_CAP
 from .fallbacks import add_safety_warning, has_safety_risk
 from .query_rewriter import get_user_question
+
+
+# All experts the Critic can request as replan reinforcement. Kept in sync
+# with dispatcher.EXPERT_RUNNERS — used to decide if any unexecuted expert
+# is still available before firing REPLAN.
+_ALL_EXPERTS = ("Trainer", "Nutritionist", "Wellness", "General")
 
 
 # Trigger for pulling authoritative medical literature from medical-mcp.
@@ -50,42 +57,59 @@ _EXPERT_LABELS = {
 _CRITIC_SYSTEM = """\
 你是健康团队的安全审核员。你的职责是对即将发给用户的回答做一次"安全 & 一致性"复核。
 
-以下三类问题必须触发 REVISE，优先级从高到低：
+你可以输出三种结论：PASS、REVISE、REPLAN。优先级从高到低如下：
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【P0 · 伤病安全硬限制】
-若用户画像中记录了活跃伤病或康复中状态（如 ACL 撕裂、半月板损伤、骨折、术后康复、韧带撕裂等），
-草稿对该伤病部位推荐了任何直接负重训练动作——哪怕加了"降级版""可控""轻度""箱式"等限定词——
-且未明确注明"须在运动医学医生或理疗师亲自评估许可并全程监督下进行"，
-→ 必须 REVISE。
-康复期原则：没有专业医疗许可 = 不推荐该部位直接负重动作，不论动作难度高低。
-修订方向：移除所有直接负重动作建议，改为"请先获得理疗师许可"，并列出零负重替代方案（如直腿抬高、等长收缩、水中训练）。
+【R0 · 缺人补员（REPLAN）— 仅在以下情况触发】
+若同时满足：
+  (a) 用户画像中存在活跃伤病/过敏/慢病/术后等关键风险因素（如 ACL/半月板/骨折/韧带/术后/食物过敏/心脏病/糖尿病），
+  (b) 草稿与各专家 scratchpad 完全没有针对该风险因素给出任何具体建议或限制（不是只字未提"提醒"，而是连风险都未识别），
+  (c) 系统提供的"已派出专家"列表中明显缺少对应领域的专家——
+    · 伤病 / 术后 / 康复 → 缺少 Trainer
+    · 过敏 / 慢病饮食限制 → 缺少 Nutritionist
+    · 长期失眠/重度压力情绪 → 缺少 Wellness
+→ 输出 VERDICT: REPLAN，并写明需要补叫哪位专家。
+注意：如果对应专家已经在"已派出专家"列表中，但建议不够完整，请用 REVISE 而不是 REPLAN（避免重复派同一个专家）。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【P1 · 症状描述必须先导向就医】
+【P0 · 伤病安全硬限制（REVISE）】
+若用户画像中记录了活跃伤病或康复中状态，下列任一情形 → REVISE：
+  (P0a) 草稿对该伤病部位推荐了任何直接负重训练动作——哪怕加了"降级版""可控""轻度""箱式"等限定词——
+        且未明确注明"须在运动医学医生或理疗师亲自评估许可并全程监督下进行"。
+  (P0b) 草稿从头到尾**完全没有**承认或提及该伤病/康复状态（既未点名部位，也未给出与之相关的注意事项），
+        即使内容本身（如纯饮食方案）没有直接危险，但忽略已知伤病等于浪费个性化机会，必须 REVISE 加上"基于你的 X 伤病/康复阶段..." 一段开头说明。
+修订方向：(P0a) 移除直接负重动作建议，改为零负重替代方案；(P0b) 在开头补一段"考虑到你目前 X 状态..." 的衔接说明，把后续建议与伤病关联起来。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【P1 · 症状描述必须先导向就医（REVISE）】
 若用户描述了身体症状（持续疼痛、心率异常、胸痛/胸闷、头晕、肿胀不消退等），
 草稿在未首先明确建议就医的前提下，先给出了可能的病因分析、鉴别诊断或自我处理方案，
-→ 必须 REVISE。
-正确结构：①先明确建议就医（"请尽快就医/检查"）→ ②再提供辅助性信息（如有）。
-不允许以"列出可能原因 + 进一步问诊"的方式替代就医建议。
+→ REVISE。正确结构：①先明确建议就医 → ②再提供辅助性信息。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【P2 · 其他健康安全风险】
+【P2 · 其他健康安全风险（REVISE）】
 - 极端热量限制：建议低于女性 1200 kcal/d 或男性 1500 kcal/d 且未说明医疗监督背景
-- 已知慢病用户（冠心病、糖尿病等）被建议高风险运动（HIIT 等）而未要求先获医生许可
+- 已知慢病用户被建议高风险运动而未要求先获医生许可
 - 越权用药：给出诊断、处方或具体药物剂量建议
-- 跨专家事实性矛盾：综合回答与各专家核心要点存在直接冲突
+- 常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）可给一般推荐摄入范围、频率与注意事项；这不视为处方药剂量越权
+- 跨专家事实性矛盾
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 判断克制原则：
+- R0 与 P0/P1/P2 都不触发 → PASS
 - 措辞不够漂亮、缺少边角细节 → PASS
-- 仅存在 P2 中的轻微风险（如建议略激进但未到危险级别）→ PASS
-- 只有上述规则明确命中时才 REVISE
-- 如系统注入了"安全知识库参考"，请把其中的红线作为硬约束，与上述 P0/P1/P2 共同执行
+- 优先级：R0 > P0 > P1 > P2。命中 R0 就输出 REPLAN，不要降级到 REVISE。
+- 如系统注入了"安全知识库参考"，请把其中的红线作为硬约束。
 
-输出格式（严格遵守）：
-- 如果通过，仅输出一行：`VERDICT: PASS`
-- 如果需要修订，输出：
+输出格式（严格遵守，三选一）：
+- 通过：仅一行 `VERDICT: PASS`
+- 补员：两行
+```
+VERDICT: REPLAN
+NEEDED: <Trainer|Nutritionist|Wellness>（恰好一个角色名，必须是已派出列表里没有的）
+REASON: <一句话写明缺哪个领域、为什么需要补>
+```
+- 现地修订：
 ```
 VERDICT: REVISE
 REASON: <一句话写明触发修订的具体规则和风险>
@@ -159,14 +183,38 @@ def _format_notes(agent_notes):
 
 
 def _parse_verdict(text: str):
-    """Return (verdict, revised_or_none). verdict ∈ {'PASS','REVISE','UNKNOWN'}."""
+    """Return (verdict, payload).
+
+    - PASS    → ('PASS', None)
+    - REVISE  → ('REVISE', revised_text)
+    - REPLAN  → ('REPLAN', {'needed': <role>, 'reason': <str>})
+    - else    → ('UNKNOWN', None)
+    """
     if not text:
         return "UNKNOWN", None
-    first_line = text.strip().splitlines()[0].strip().upper()
-    if first_line.startswith("VERDICT: PASS"):
+    stripped = text.strip()
+    first_line = stripped.splitlines()[0].strip().upper().replace(" ", "")
+    if first_line.startswith("VERDICT:PASS"):
         return "PASS", None
-    if first_line.startswith("VERDICT: REVISE"):
-        # split on first '---' line
+    if first_line.startswith("VERDICT:REPLAN"):
+        needed = ""
+        reason = ""
+        for line in stripped.splitlines()[1:]:
+            ls = line.strip()
+            up = ls.upper()
+            if up.startswith("NEEDED:"):
+                needed = ls.split(":", 1)[1].strip().strip("：:").strip()
+            elif up.startswith("REASON:"):
+                reason = ls.split(":", 1)[1].strip().strip("：:").strip()
+        # Keep only the first valid role token (e.g., "Trainer" out of "Trainer 教练")
+        for role in _ALL_EXPERTS:
+            if role.lower() in needed.lower():
+                needed = role
+                break
+        else:
+            needed = ""
+        return "REPLAN", {"needed": needed, "reason": reason or "审核员认为需补叫专家"}
+    if first_line.startswith("VERDICT:REVISE"):
         parts = re.split(r"\n\s*---\s*\n", text, maxsplit=1)
         revised = parts[1].strip() if len(parts) == 2 else ""
         return "REVISE", revised or None
@@ -194,14 +242,23 @@ def critic_node(state):
     safety_section = _retrieve_safety(user_question, draft)
     medical_section, medical_hit = _retrieve_medical_context(user_question, draft)
 
+    executed = list(state.get("executed") or [])
+    replan_count = int(state.get("replan_count", 0) or 0)
+    unexecuted = [r for r in _ALL_EXPERTS if r not in executed and r != "General"]
+    can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
+
     review_prompt = (
         f"用户画像：\n{profile_text}\n\n"
         f"用户本轮问题：\n{user_question}\n\n"
+        f"本轮已派出专家：{', '.join(executed) if executed else '（无）'}\n"
+        f"尚未派出但可补叫：{', '.join(unexecuted) if unexecuted else '（无可补叫）'}\n"
+        f"已 replan 次数：{replan_count}（上限 {REPLAN_CAP}）\n\n"
         f"各专家共享 scratchpad 要点：\n{notes_text}\n\n"
         f"{safety_section}"
         f"{medical_section}"
         f"即将发送给用户的草稿回答：\n{draft}\n\n"
-        "请按指定格式给出审核结论。"
+        + ("当前补员配额已用尽，请只在 PASS / REVISE 中二选一。\n" if not can_replan else "")
+        + "请按指定格式给出审核结论。"
     )
 
     try:
@@ -230,15 +287,37 @@ def critic_node(state):
             "critic_verdict": verdict,
         }
 
-    verdict, revised = _parse_verdict(raw)
+    verdict, payload = _parse_verdict(raw)
 
-    if verdict == "REVISE" and revised:
-        final_text = revised
+    # ---- REPLAN path: hand back to Planner to bring in another expert ----
+    if verdict == "REPLAN" and can_replan:
+        info = payload or {}
+        needed = info.get("needed") or ""
+        reason = info.get("reason") or "审核员认为需补叫专家"
+        # Sanitize: only honor REPLAN if the requested role is genuinely missing.
+        if needed and needed not in executed:
+            replan_marker = f"REPLAN+MED" if medical_hit else "REPLAN"
+            return {
+                # No messages — second Critic run will emit the final answer.
+                "critic_verdict": replan_marker,
+                "replan_context": f"安全审核员要求补叫 {needed}：{reason}",
+                "replan_count": replan_count + 1,
+                # Clear stale draft so Aggregator regenerates after the new expert returns.
+                "draft_answer": "",
+            }
+        # REPLAN requested but target invalid → fall through to PASS/REVISE handling.
+        verdict = "PASS"
+        payload = None
+
+    if verdict == "REVISE" and payload:
+        final_text = payload
     else:
-        # PASS or UNKNOWN → ship the draft unchanged.
+        # PASS / UNKNOWN / REPLAN-without-budget → ship the draft unchanged.
         final_text = draft
         if verdict == "UNKNOWN":
             verdict = "PASS_FALLBACK"
+        elif verdict == "REPLAN":
+            verdict = "PASS_REPLAN_BUDGETED"
 
     if medical_hit:
         verdict = f"{verdict}+MED"

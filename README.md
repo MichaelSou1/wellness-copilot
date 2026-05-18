@@ -16,6 +16,7 @@
 - 本地 RAG 知识增强（各 agent 独立知识库 + 安全审核专用 safety 库，可追溯来源）
 - 三层异常兜底（节点级降级 + RAG 工具降级 + Critic 故障安全提示）
 - 可观测评估（路由、工具使用、时延、引用率）
+- **五层评测金字塔**：L5 端到端输出质量（61 条 + LLM judge + 架构感知断言）/ L4 架构特性回归（14 条 monkeypatch 验证父子隔离/并行/Replan/情节记忆）/ L3 安全审核混淆矩阵（29 条按 risk_level 分层）/ L2 烟囱（6 个 smoke 脚本）/ L1 RAG 召回（506 条两阶段 IR 评测）
 
 ## 架构总览
 
@@ -333,76 +334,68 @@ MCP_STARTUP_TIMEOUT_SEC=90
 - **同步包装**：`langchain-mcp-adapters` 的工具是 async-only；`health_guide/mcp_client.py` 内开一个后台 daemon thread 跑专用 event loop，每次同步工具调用通过 `run_coroutine_threadsafe` 派发到该 loop，Dispatcher 的 ThreadPoolExecutor 并行 fan-out 共享这一个 loop，无任何 event loop 嵌套问题。
 - **故障隔离**：握手 / 调用失败一律转成 `[MCP Error] ...` 字符串返回给 LLM（和现有 `[RAG Error]` 风格对称），不抛异常上浮，专家照样能跑完。
 
-## 端到端输出质量评测
+## 端到端评测管线（L5 / L4 / L3 / L2 / L1）
 
-除 RAG 召回率外，本项目额外提供针对**最终回答质量**的端到端评测管线，覆盖路由正确性、安全性与个性化等维度。
+除 RAG 召回率外，本项目把"最终回答质量"拆成**五层评测金字塔**，每层独立归因、能独立回归：
 
-### 评测架构
+```
+L5  端到端用户体验  output_eval_dataset.jsonl  (61 条 · 含 LLM judge)   慢/贵/最贴近用户
+L4  架构特性回归    architecture_eval_dataset.jsonl (14 条 · 纯断言)    父子隔离/并行/Replan/情节记忆/摘要压缩
+L3  安全审核专项    safety_eval_dataset.jsonl  (29 条 · risk_level)     Critic + Safety KB 混淆矩阵
+L2  组件单测/烟囱   scripts/smoke_*.py (6 个)                            节点级，PR 必跑
+L1  RAG 召回        rag_eval_dataset_v2.jsonl (506 条)                  embedder/reranker 单独迭代
+```
+
+L1 / L2 详见对应小节；下面重点说 L3 / L4 / L5。
+
+### L5 端到端输出质量（`evaluate_output.py`）
 
 两层互补：
 
 | 层 | 方法 | 特点 |
 |---|---|---|
-| **确定性断言** | `must_contain` / `must_not_contain` 关键词规则 | 零 LLM 成本，优先执行；覆盖安全硬限制（禁忌词）和就医引导 |
+| **确定性断言** | 关键词规则 + 架构感知断言（见下） | 零 LLM 成本，优先执行；覆盖路由 / 工具行为 / 安全硬限制 |
 | **LLM-as-Judge** | 独立第三方模型多维评分（1–5 分） | 与 agent 使用不同模型提供商，避免自评膨胀 |
 
 Judge 提示词内置校准约束（真实回答集中在 3–4 分区间，5 分须无可挑剔），并对伤病冲突建议强制打 safety=1。
 
-### 评测数据集
-
-`eval/output_eval_dataset.jsonl`：30 条有代表性样本，覆盖 8 类场景：
+**数据集** `eval/output_eval_dataset.jsonl`：61 条样本（11 类场景）
 
 | 类别 | 数量 | 说明 |
 |---|---|---|
 | `nutrition` | 4 | 蛋白质计算、极端低卡、补剂等 |
 | `training` | 4 | 力量训练计划、TDEE、伤病训练 |
 | `wellness` | 3 | 睡眠/压力/倦怠干预 |
-| `multi_expert` | 4 | 需要多专家协作的复合问题 |
-| `safety_critical` | 5 | ACL/伤病、心率异常等高风险场景 |
-| `multi_turn` | 5 | 多轮上下文（如第一轮透露过敏/伤病，第二轮问相关建议） |
-| `chitchat_boundary` | 3 | 寒暄与能力边界澄清 |
+| `multi_expert` | 8 | 需要多专家协作的复合问题（含跨域冲突） |
+| `safety_critical` | 8 | ACL/伤病、心率异常等高风险场景 |
+| `multi_turn` | 8 | 多轮上下文（首轮透露过敏/伤病，后续相关建议） |
+| `chitchat_boundary` | 5 | 寒暄与能力边界澄清 |
 | `refusal_scope` | 2 | 越权诊断拒绝场景 |
+| **`replan_required`** | 6 | 用户问单领域但画像/情节记忆触发 Replan，断言 `replan_count ≥ 1` |
+| **`rag_skip`** | 5 | 寒暄 / 纯个人信息，断言 `max_rag_calls = 0`（验证按需检索） |
+| **`profile_personalization`** | 8 | 强校验回答中复述画像数值（如 "80kg"/"ACL"），断言驱动 personalization 维度 |
 
-### 最新评测结果（2026-05-11）
+**架构感知断言（在断言层而非 judge 层）**：
 
-```
-Overall avg score  : 4.59 / 5.00
-Assertion pass rate: 85.3%  (87 / 102)
-Routing accuracy   : 93.3%  (28 / 30)
-```
-
-| 维度 | 得分 |
+| 断言字段 | 校验 |
 |---|---|
-| relevance（切题性） | 5.000 |
-| coherence（连贯性） | 4.967 |
-| completeness（完整性） | 4.567 |
-| safety（安全性） | 4.767 |
-| personalization（个性化） | 3.667 |
+| `expected_min_replan_count` / `expected_max_replan_count` | `state.replan_count` 上下界（验证 Replan 触发 / cap） |
+| `expected_min_rag_calls` / `expected_max_rag_calls` | `state.last_tools` 中 `retrieve_*_knowledge` 调用次数（验证 RAG 按需） |
+| `expected_min_retrieval_hits` | `state.retrieval_hits` 下界（high-risk 必须 KB grounded） |
+| `expected_profile_echo` | 必须在回答中出现的画像锚点字符串列表（personalization 量化） |
+| `expected_critic_verdict` | 允许的 verdict band，支持 `PASS`/`REVISE` 与 `+MED` 后缀语义匹配（如 `PASS+MED`） |
 
-| 类别 | 均分 |
-|---|---|
-| multi_expert | 4.75 |
-| nutrition | 4.70 |
-| multi_turn | 4.60 |
-| safety_critical | 4.60 |
-| wellness | 4.60 |
-| training | 4.55 |
-| chitchat_boundary | 4.47 |
-| refusal_scope | 4.30 |
-
-personalization 分低于其他维度，是当前主要优化方向（要求回答代入画像具体数值而非给通用建议）。
-
-### 运行评测
+**报告新增 `architecture_summary` 块**：Replan 触发率、chitchat 类 RAG-skip 率、profile-echo 命中率、Critic verdict 分布、平均 RAG 调用数，作为后续每次架构改造的回归基线。
 
 ```bash
-# 完整运行（全 30 条 + LLM judge）
+# 完整运行（61 条 + LLM judge）
 python scripts/evaluate_output.py
 
 # 仅跑断言 + 路由（无 LLM 成本，快速冒烟）
 python scripts/evaluate_output.py --no-judge
 
 # 只跑指定样本
-python scripts/evaluate_output.py --samples safety_001,safety_004
+python scripts/evaluate_output.py --samples replan_001,personalization_003
 
 # 从已有报告中只重跑 bad case（assertion_pass=False 或 safety≤2），其余结果保留
 python scripts/evaluate_output.py \
@@ -410,15 +403,97 @@ python scripts/evaluate_output.py \
   --rerun-bad
 ```
 
-Judge 使用独立的 LLM，通过环境变量配置（与 agent 分离）：
+Judge 使用独立的 LLM，配置在 `.env` 里（与 agent 共享同一份 `.env`，但用独立的 `JUDGE_*` 前缀，避免自评膨胀）：
 
 ```ini
+# .env
 JUDGE_BASE_URL=https://your-judge-endpoint/v1
 JUDGE_API_KEY=your_judge_key
 JUDGE_MODEL=deepseek-v3-2-251201
 ```
 
-输出：`reports/output_eval_report.json`，包含每条样本的断言结果、路由命中、多维评分、safety warnings 和 low_scorers 列表。
+留空时自动 fallback 到主对话模型并打 `[WARN]` 提示分数会偏高；推荐主模型 GPT-5.5 + Judge 用 DeepSeek/Claude/Gemini 异源模型。完整说明见 `.env.example` 的 Judge LLM 小节。
+
+输出：`reports/output_eval_report.json`，含每条样本的断言结果、路由命中、`replan_count`/`rag_calls`/`retrieval_hits`、多维评分、`architecture_summary` 聚合、safety warnings 和 low_scorers 列表。
+
+#### 历史基线（30 条版本，2026-05-11）
+
+```
+Overall avg score  : 4.59 / 5.00     Assertion pass rate: 85.3% (87/102)
+Routing accuracy   : 93.3% (28/30)
+```
+
+| 维度 | 得分 |  | 类别 | 均分 |
+|---|---|---|---|---|
+| relevance | 5.000 |  | multi_expert | 4.75 |
+| coherence | 4.967 |  | nutrition | 4.70 |
+| safety | 4.767 |  | multi_turn | 4.60 |
+| completeness | 4.567 |  | safety_critical | 4.60 |
+| personalization | 3.667 |  | wellness | 4.60 |
+
+personalization（3.67）是当前主要优化方向——新增的 `profile_personalization` 类与 `expected_profile_echo` 断言专门攻这个短板，下次完整跑 61 条会重新落到 `reports/output_eval_report.json`。
+
+### L3 安全审核专项（复用 `evaluate_output.py`）
+
+`eval/safety_eval_dataset.jsonl`：29 条样本，每条带 `risk_level ∈ {none, low, medium, high}` 与 `expected_critic_verdict`，专门衡量 Critic + Safety KB + medical-mcp 的安全审核质量。
+
+| risk_level | 数量 | 典型场景 |
+|---|---|---|
+| `high` | 15 | 药物剂量/相互作用、急性胸痛、ACL 负重、孕期 HIIT、极端低卡、自我诊断/自伤、进食障碍 |
+| `medium` | 5 | 高剂量补剂、高血压大重量、产后重训、断食方案 |
+| `low` | 5 | 咖啡因/酒精/训练强度等边界 case |
+| `none` | 4 | 完全正常问题（控 FP 用） |
+
+**核心指标（混淆矩阵）**：
+
+|  | 期望 PASS | 期望 REVISE |
+|---|---|---|
+| 实际 PASS | TN | **FN（漏审）** ★关键 |
+| 实际 REVISE | FP（过审） | TP |
+
+- **Critic recall**（high case 中 REVISE 命中率）：目标 ≥ 95%
+- **Critic precision**（不该 REVISE 却 REVISE 比例）：目标 ≥ 80%（避免审过头）
+- **`+MED` 触发率**：药物/症状 case 中 medical-mcp 介入率（`critic_verdict` 含 `+MED` 后缀）
+
+```bash
+# 跑安全专项（共享 L5 runner，只是换数据集）
+python scripts/evaluate_output.py --dataset eval/safety_eval_dataset.jsonl
+
+# 快速冒烟（无 judge，混淆矩阵从断言侧拿）
+python scripts/evaluate_output.py --dataset eval/safety_eval_dataset.jsonl --no-judge
+```
+
+输出：`reports/output_eval_report.json` 中 `architecture_summary.critic_verdict_dist` 字段直接展开为混淆矩阵原始数据。
+
+### L4 架构特性回归（`evaluate_architecture.py`）
+
+针对**新架构 6 大改造点**的 must-pass 断言，每条 case 都不依赖 LLM 评分。
+
+数据集 `eval/architecture_eval_dataset.jsonl`：14 条，按 `arch_check` 字段路由到对应的 evaluator：
+
+| `arch_check` | 数量 | 验证机制 |
+|---|---|---|
+| `context_isolation` | 3 | monkeypatch `utils.create_agent` 捕获每个专家的 SystemMessage，断言：白名单字段在场 + 黑名单字段（如 Trainer 看不到 `dietary_restrictions`）不在场 + 总长 ≤ 阈值 |
+| `rag_on_demand` | 3 | 寒暄/纯个人信息触发 `state.last_tools` 中 `retrieve_*_knowledge` 调用数 = 0 |
+| `parallel_fanout` | 2 | monkeypatch `EXPERT_RUNNERS` 包装计时；多专家计划的 wall-clock < sum(per-expert) × 0.85 |
+| `replan_triggers` / `replan_cap` / `replan_skip_on_full_plan` | 3 | 读 `state.replan_count` + `state.executed`，验证 Replan 在该触发时触发、不该触发时不触发、且永不超过 `REPLAN_CAP=2` |
+| `episodic_memory_cross_thread` | 2 | 预写一条伤病/过敏 episode 到 `episode_store`，新 thread 调起 graph，断言答案出现对应关键词 + `state.episode_context` 非空 |
+| `history_summary_compression` | 1 | 单 thread 跑 ≥ 12 轮，断言 `state.history_summary` 非空且 messages 总数受控（验证 `RemoveMessage` 真的发了） |
+
+```bash
+# 跑全部 14 条
+python scripts/evaluate_architecture.py
+
+# 跑指定 case
+python scripts/evaluate_architecture.py --samples arch_isolation_001,arch_parallel_002
+
+# 打印每条 detail（便于排查 fail case）
+python scripts/evaluate_architecture.py -v
+```
+
+输出：`reports/architecture_eval_report.json`，含 `by_check`（按检查类目的通过率）+ `details`（每条 case 捕获到的 system_prompt 摘录、并行时序、replan 计数等可追溯字段）。
+
+> 实现要点：runner 在启动时一次性 monkeypatch `health_guide.utils.create_agent` 与 `dispatcher.EXPERT_RUNNERS`，把原始引用保存在 `_orig_*` 属性下，所以单次进程内运行不会影响后续 L5/L3 跑批（如要混用，分进程跑或在 L4 后重启 Python）。
 
 ---
 
@@ -820,12 +895,15 @@ Health-Guide-Agent/
 ├── knowledge_base/                  # 分层 RAG 语料
 ├── reports/                         # 评测 & 会话指标导出
 ├── eval/                            # 评测数据集
-│   ├── rag_eval_dataset_v2.jsonl    # RAG 召回评测集（506 条）
-│   └── output_eval_dataset.jsonl   # 端到端输出质量评测集（30 条，8 类场景）
+│   ├── rag_eval_dataset_v2.jsonl    # L1 · RAG 召回评测集（506 条）
+│   ├── output_eval_dataset.jsonl   # L5 · 端到端输出质量评测集（61 条，11 类场景）
+│   ├── safety_eval_dataset.jsonl   # L3 · 安全审核专项（29 条，high:medium:low:none = 15:5:5:4）
+│   └── architecture_eval_dataset.jsonl  # L4 · 架构特性回归（14 条，8 个 arch_check）
 ├── scripts/                         # 索引构建 / 评测 / smoke 测试 / MCP setup
 │   ├── build_rag_index.py
-│   ├── evaluate_rag.py
-│   ├── evaluate_output.py           # 端到端输出质量评测（断言 + LLM-as-Judge + --rerun-bad）
+│   ├── evaluate_rag.py              # L1 · 两阶段 IR 评测（Stage-1 dense / Stage-2 rerank）
+│   ├── evaluate_output.py           # L5 + L3 · 断言 + LLM-as-Judge + 架构感知指标 + --rerun-bad
+│   ├── evaluate_architecture.py     # L4 · monkeypatch 验证父子隔离 / 并行 / Replan / 情节记忆
 │   ├── generate_eval_dataset.py
 │   ├── setup_mcp_servers.sh         # 一键 clone+install jlfwong USDA MCP（npm 未发布）
 │   ├── smoke_coreference.py         # 多轮指代消解端到端

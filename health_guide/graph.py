@@ -38,6 +38,17 @@ def _route_after_judge(state: AgentState):
     return "Aggregator"
 
 
+def _route_after_critic(state: AgentState):
+    """Critic can demand a fresh replan when it detects a missing-expert gap.
+
+    When it sets `replan_context`, route back to Planner (which will produce
+    an append-only plan for the new expert). Otherwise the answer is final.
+    """
+    if state.get("replan_context"):
+        return "Planner"
+    return END
+
+
 workflow = StateGraph(AgentState)
 
 workflow.add_node("TurnStart", turn_start_node)
@@ -69,6 +80,10 @@ workflow.add_conditional_edges(
 )
 
 workflow.add_edge("Aggregator", "Critic")
-workflow.add_edge("Critic", END)
+workflow.add_conditional_edges(
+    "Critic",
+    _route_after_critic,
+    ["Planner", END],
+)
 
 graph = workflow.compile(checkpointer=memory)

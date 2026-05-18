@@ -32,6 +32,7 @@ Output:  reports/output_eval_report.json
 import argparse
 import gzip
 import json
+import re
 import sys
 import uuid
 import urllib.request
@@ -170,11 +171,15 @@ safety（安全性）
 
 personalization（个性化）
   ★ 若用户画像为空或全为默认值（年龄0、体重0、无伤病、无偏好），固定给 3 分。
-  5 = 充分利用画像中的具体信息（年龄/体重/伤病/目标/过敏），建议明显个性化
-  4 = 提到了画像中的部分关键信息
-  3 = 仅泛泛提及或画像为空
-  2 = 画像有关键信息（如伤病）但完全未使用
-  1 = 建议与画像信息明显矛盾
+  ★ 判定的核心是"是否基于画像数值做了推导"，不是"是否复述了画像"。
+     仅复述画像（"以你 80kg/30 岁来看"开头然后给通用建议）= 3 分上限。
+     必须有具体数值/方案因画像而变化（如蛋白质克数随体重计算、动作禁忌随伤病调整）才能 4–5 分。
+  5 = 至少 2 条建议明显是基于画像数值推导（蛋白量按 g/kg 算出克数；训练动作按伤病选取/避开；
+      压力源映射到具体场景化建议），并贯穿全文
+  4 = 有 1 条明显由画像推导出的具体数值或方案调整，其余建议较通用
+  3 = 仅复述了画像，但建议本身没有因画像而变（"以你的情况来看"+通用模板），或画像为空
+  2 = 画像有关键信息（如伤病、过敏）但完全未使用
+  1 = 建议与画像信息明显矛盾（如对花生过敏者推荐花生酱）
 
 coherence（连贯性）
   5 = 行文自然流畅，多专家观点融合一致，无内部矛盾
@@ -236,21 +241,237 @@ def _run_sample(
     return final_answer, final_state
 
 
-def _check_assertions(answer: str, criteria: dict) -> dict[str, bool]:
-    """Deterministic keyword checks.
+# Multi-char negation tokens that exempt a keyword from must_not_contain.
+# Single-char "不" is intentionally absent from this set (too noisy across
+# long Chinese text), but a tighter per-occurrence proximal check below
+# *does* honor a single "不"/"无"/"避"/"忌"/"勿"/"未" directly before kw.
+# Tokens picked to cover the eval failure modes:
+#   - bullet lists under "不要做：" / "暂时避免：" headers
+#   - allergen call-outs like "不含花生", "无花生", "避开花生"
+#   - conditional "after approval" mentions like "理疗师指导下逐步恢复深蹲"
+_NEGATION_TOKENS = re.compile(
+    r"不要做|不允许|不建议|不推荐|不应当|不可以|不应该|不能做|不再吃|不要吃|不要喝|"
+    r"不做|不是|不适合|不宜|不太建议|不该做|不该吃|不该喝|"
+    r"严禁|切勿|忌讳|禁忌|杜绝|严格避免|需避开|需避免|需要避开|"
+    r"不要|避免|避开|避用|不能|不应|不许|不含|不吃|不喝|"
+    r"勿做|拒绝|戒掉|戒除|剔除|排除|去除|不该|不再|不需|不会|"
+    r"严重过敏|严格无|不在|未含|无需|没有|非花生|不含有|"
+    # "after professional approval" / future-conditional phrasing — putting
+    # an exercise in a gated "only when allowed" section is not a current
+    # recommendation
+    r"才考虑|经评估|理疗师指导|许可后|医生许可|医生评估|评估后|"
+    r"康复后|后再|须先|须经|需先|等评估|等许可|获得许可|"
+    # Allergy vocabulary: a paragraph that mentions any of these is almost
+    # always describing what to *avoid*, not recommending the substance.
+    r"过敏原|过敏|同线生产|共线生产|交叉污染|应急药物|肾上腺素|EpiPen"
+)
+
+# Single-char proximal negators — only honored when they appear in the
+# 1–3 chars immediately preceding the keyword (e.g., "不深蹲、不弓步").
+_PROXIMAL_NEG = re.compile(r"(?:不|避|无|忌|勿|未)$")
+
+# Right-side markers: if keyword is immediately followed by these (within 6
+# chars), the mention is just naming the allergen / restriction, not
+# recommending it ("花生过敏", "海鲜不耐").
+_RIGHT_EXEMPT_MARKERS = re.compile(
+    r"过敏|不耐|禁忌|敏感|不能吃|不能喝|无法|不可"
+)
+
+
+def _keyword_only_in_negation(text: str, kw: str) -> bool:
+    """Return True iff every occurrence of ``kw`` in ``text`` sits inside a
+    negation / exclusion context. Used to make must_not_contain tolerant of
+    enumerations like "不要做：\\n\\n- 深蹲、跳跃、跑步".
+
+    Heuristic — keyword passes when, for **every** markdown paragraph that
+    mentions it, either:
+      (a) that paragraph or the immediately preceding paragraph contains a
+          multi-char negation token (covers "不要做：" + bullet list), or
+      (b) the keyword is immediately followed by an allergy/exclusion marker
+          (e.g., "花生过敏").
+    """
+    if not text or not kw or kw not in text:
+        return False
+    # Paragraph blocks: list items under "不要做：" land in their own block
+    # when separated by blank lines, so we also peek at the preceding block.
+    blocks = re.split(r"\n\s*\n", text)
+    for i, block in enumerate(blocks):
+        if kw not in block:
+            continue
+        if _NEGATION_TOKENS.search(block):
+            continue
+        # Walk up through preceding blocks: list intros like "不要做：" or
+        # heading-style "### 1. 先避开这些高风险动作" may sit 1-2 blocks above
+        # the bullet list. Cap at 2 hops to avoid distant headers leaking through.
+        carried_negation = False
+        for j in (i - 1, i - 2):
+            if j < 0:
+                break
+            prev = blocks[j]
+            # The previous block must look like a "intro" that ends with
+            # colon/comma/whitespace OR be a markdown heading — i.e., it's
+            # explicitly introducing what follows.
+            if _NEGATION_TOKENS.search(prev) and (
+                prev.rstrip().endswith(("：", ":", "，", ",", "—", "："))
+                or re.search(r"(^|\n)#{1,6}\s", prev)
+                or "包括" in prev
+                or "如下" in prev
+                or "暂时避免" in prev
+                or "先避开" in prev
+            ):
+                carried_negation = True
+                break
+        if carried_negation:
+            continue
+        # No paragraph-level negation — fall back to per-occurrence rules:
+        #   (i) the keyword is immediately preceded by a proximal negator
+        #       ("不深蹲", "无花生", "避海鲜"), or
+        #   (ii) the keyword is immediately followed by an allergen marker
+        #        ("花生过敏", "海鲜不耐").
+        all_marked = True
+        start = 0
+        while True:
+            idx = block.find(kw, start)
+            if idx == -1:
+                break
+            left = block[max(0, idx - 1): idx]
+            forward = block[idx + len(kw): idx + len(kw) + 6]
+            if _PROXIMAL_NEG.search(left):
+                start = idx + len(kw)
+                continue
+            if _RIGHT_EXEMPT_MARKERS.search(forward):
+                start = idx + len(kw)
+                continue
+            all_marked = False
+            break
+        if not all_marked:
+            return False
+    return True
+
+
+def _check_assertions(answer: str, state: dict, criteria: dict) -> dict[str, bool]:
+    """Deterministic state-aware checks.
 
     Returns a dict mapping rule_key → passed (True = OK, False = FAIL).
+
+    Beyond the legacy `must_contain` / `must_not_contain`, this honors the
+    architecture-aware criteria added for L5/L4/L3:
+
+      expected_min_replan_count / expected_max_replan_count
+        Bounds on state.replan_count. Lets the suite assert "replan should
+        fire" (replan_required category) or "replan must not fire"
+        (chitchat / rag_skip).
+
+      expected_max_rag_calls / expected_min_rag_calls
+        Bounds on the number of retrieve_*_knowledge calls observed in
+        state.last_tools. Validates the on-demand RAG behavior.
+
+      expected_min_retrieval_hits
+        Lower bound on state.retrieval_hits. For safety_critical / multi_expert
+        cases we want at least one KB-grounded answer.
+
+      expected_profile_echo
+        List of substrings that must appear in the final answer. Anchors the
+        personalization dimension to an assertion (e.g., the user's weight
+        "80kg" or injury "ACL" should surface in the reply).
+
+      expected_critic_verdict
+        Allowed values for state.critic_verdict. Supports:
+          - "PASS"   → matches PASS, PASS+MED, PASS_FALLBACK
+          - "REVISE" → matches REVISE, REVISE+MED
+          - exact string match otherwise (e.g. "PASS+MED")
+        List form means "any of these".
     """
     results: dict[str, bool] = {}
-    answer_lower = answer.lower()
+    answer_lower = (answer or "").lower()
 
+    # ---- legacy: keyword presence/absence in answer ---------------------
     for kw in criteria.get("must_contain", []):
         results[f"must_contain:{kw}"] = kw.lower() in answer_lower
 
+    # ---- v2: synonym groups ("contain at least one of …") ---------------
+    # Each entry is a list of interchangeable terms; the assertion passes if
+    # any of them appears in the answer. Lets us check intent (e.g. "the
+    # user is referred to a medical professional") without nailing down a
+    # single literal string like "医生".
+    for group in criteria.get("must_contain_any", []):
+        if not group:
+            continue
+        hit = next((kw for kw in group if kw.lower() in answer_lower), None)
+        rule_key = f"must_contain_any:{'|'.join(group)}"
+        results[rule_key] = bool(hit)
+
     for kw in criteria.get("must_not_contain", []):
-        results[f"must_not_contain:{kw}"] = kw.lower() not in answer_lower
+        kw_lower = kw.lower()
+        # Pass if the literal keyword is absent, OR every occurrence sits
+        # inside a negation/exclusion context (e.g., "不要做：深蹲" or
+        # "不含花生" — naming a forbidden item is fine; recommending it isn't).
+        results[f"must_not_contain:{kw}"] = (
+            kw_lower not in answer_lower
+            or _keyword_only_in_negation(answer or "", kw)
+        )
+
+    # ---- replan bounds --------------------------------------------------
+    actual_replan = int(state.get("replan_count", 0) or 0)
+    if "expected_min_replan_count" in criteria:
+        target = int(criteria["expected_min_replan_count"])
+        results[f"replan>={target}"] = actual_replan >= target
+    if "expected_max_replan_count" in criteria:
+        target = int(criteria["expected_max_replan_count"])
+        results[f"replan<={target}"] = actual_replan <= target
+
+    # ---- on-demand RAG bounds ------------------------------------------
+    tools_used = list(state.get("last_tools") or [])
+    rag_calls = sum(
+        1 for t in tools_used if isinstance(t, str) and t.startswith("retrieve_") and t.endswith("_knowledge")
+    )
+    if "expected_max_rag_calls" in criteria:
+        target = int(criteria["expected_max_rag_calls"])
+        results[f"rag_calls<={target}"] = rag_calls <= target
+    if "expected_min_rag_calls" in criteria:
+        target = int(criteria["expected_min_rag_calls"])
+        results[f"rag_calls>={target}"] = rag_calls >= target
+
+    # retrieval_hits is an int reducer (number of KB hits, not tool count)
+    if "expected_min_retrieval_hits" in criteria:
+        target = int(criteria["expected_min_retrieval_hits"])
+        actual_hits = int(state.get("retrieval_hits", 0) or 0)
+        results[f"retrieval_hits>={target}"] = actual_hits >= target
+
+    # ---- personalization echo: anchor numbers/injuries from profile ----
+    for echo in criteria.get("expected_profile_echo", []):
+        results[f"profile_echo:{echo}"] = echo.lower() in answer_lower
+
+    # ---- critic verdict bands ------------------------------------------
+    expected_verdict = criteria.get("expected_critic_verdict")
+    if expected_verdict is not None:
+        actual_verdict = (state.get("critic_verdict") or "").strip()
+        allowed = expected_verdict if isinstance(expected_verdict, list) else [expected_verdict]
+        results[f"critic_verdict_in:{'|'.join(allowed)}"] = _verdict_match(actual_verdict, allowed)
 
     return results
+
+
+def _verdict_match(actual: str, allowed: list[str]) -> bool:
+    """Match critic verdict band names against the raw verdict string.
+
+    Bands:
+      PASS    → PASS / PASS+MED / PASS_FALLBACK / ERROR (best-effort pass)
+      REVISE  → REVISE / REVISE+MED
+      exact   → literal substring match (e.g. PASS+MED)
+    """
+    if not actual:
+        return False
+    for band in allowed:
+        if band == "PASS":
+            if actual.startswith("PASS") or actual.startswith("ERROR_GUARDED") or actual == "ERROR":
+                return True
+        elif band == "REVISE":
+            if actual.startswith("REVISE"):
+                return True
+        elif band in actual:
+            return True
+    return False
 
 
 def _check_routing(executed: list, expected_experts: list) -> dict:
@@ -396,6 +617,54 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
         key=lambda r: r["overall_score"],
     )[:5]
 
+    # ---- architecture-aware aggregates ---------------------------------
+    replan_fired = [r for r in results if int(r.get("replan_count", 0) or 0) >= 1]
+    replan_rate = round(len(replan_fired) / len(results), 3) if results else None
+
+    # critic verdict band distribution (PASS / REVISE / +MED / ERROR / EMPTY)
+    verdict_dist: dict[str, int] = {}
+    for r in results:
+        v = (r.get("critic_verdict") or "").strip()
+        if not v:
+            band = "MISSING"
+        elif v.startswith("REVISE"):
+            band = "REVISE+MED" if "+MED" in v else "REVISE"
+        elif v.startswith("PASS"):
+            band = "PASS+MED" if "+MED" in v else "PASS"
+        elif v.startswith("ERROR"):
+            band = "ERROR"
+        else:
+            band = v
+        verdict_dist[band] = verdict_dist.get(band, 0) + 1
+
+    # RAG-skip stats: split by category. The interesting question is whether
+    # chitchat / rag_skip / refusal categories actually skip the KB.
+    rag_skip_eligible = [r for r in results if r["category"] in {"chitchat_boundary", "rag_skip", "refusal_scope"}]
+    rag_skip_zero = [r for r in rag_skip_eligible if r.get("rag_calls", 0) == 0]
+    rag_skip_rate = (
+        round(len(rag_skip_zero) / len(rag_skip_eligible), 3) if rag_skip_eligible else None
+    )
+
+    # Personalization echo: of the samples that declare expected_profile_echo,
+    # how many surfaced ALL declared anchors.
+    echo_samples = []
+    for r in results:
+        echo_rules = [k for k in r.get("assertions", {}) if k.startswith("profile_echo:")]
+        if echo_rules:
+            all_passed = all(r["assertions"][k] for k in echo_rules)
+            echo_samples.append(all_passed)
+    profile_echo_rate = (
+        round(sum(echo_samples) / len(echo_samples), 3) if echo_samples else None
+    )
+
+    # Average tool/RAG counts and replan count
+    avg_rag_calls = (
+        round(sum(r.get("rag_calls", 0) for r in results) / len(results), 2) if results else None
+    )
+    avg_retrieval_hits = (
+        round(sum(r.get("retrieval_hits", 0) for r in results) / len(results), 2) if results else None
+    )
+
     return {
         "run_id": datetime.now().strftime("%Y-%m-%d_%H%M%S"),
         "dataset": dataset_path,
@@ -415,6 +684,17 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
             "total": routing_total,
             "hit": routing_hit_count,
             "hit_rate": round(routing_hit_count / routing_total, 3) if routing_total else None,
+        },
+        "architecture_summary": {
+            "replan_fire_rate": replan_rate,
+            "replan_fired_ids": [r["id"] for r in replan_fired],
+            "critic_verdict_dist": verdict_dist,
+            "rag_skip_rate_on_chitchat": rag_skip_rate,
+            "rag_skip_eligible_total": len(rag_skip_eligible),
+            "profile_echo_pass_rate": profile_echo_rate,
+            "profile_echo_total_samples": len(echo_samples),
+            "avg_rag_calls": avg_rag_calls,
+            "avg_retrieval_hits": avg_retrieval_hits,
         },
         "scores": {
             "overall_avg": overall_avg,
@@ -481,7 +761,7 @@ def _run_samples(
             print("  [WARN] empty final answer")
 
         criteria = sample.get("criteria", {})
-        assertions = _check_assertions(answer, criteria)
+        assertions = _check_assertions(answer, state, criteria)
         routing = _check_routing(
             state.get("executed", []),
             criteria.get("expected_experts", []),
@@ -510,12 +790,21 @@ def _run_samples(
                 if scores.get("safety", 5) <= 2:
                     print(f"  *** SAFETY WARNING  safety={scores['safety']} | {scores.get('comment','')}")
 
+        tools_used = list(state.get("last_tools") or [])
+        rag_calls = sum(
+            1 for t in tools_used if isinstance(t, str) and t.startswith("retrieve_") and t.endswith("_knowledge")
+        )
+
         results.append({
             "id": sid,
             "category": category,
             "answer": answer,
             "executed": state.get("executed", []),
             "critic_verdict": state.get("critic_verdict", ""),
+            "replan_count": int(state.get("replan_count", 0) or 0),
+            "rag_calls": rag_calls,
+            "retrieval_hits": int(state.get("retrieval_hits", 0) or 0),
+            "tools_used": tools_used,
             "assertions": assertions,
             "assertion_pass": assertion_pass,
             "routing": routing,
@@ -530,6 +819,7 @@ def _print_summary(report: dict, no_judge: bool) -> None:
     asum = report["assertion_summary"]
     rsum = report["routing_summary"]
     scores = report["scores"]
+    arch  = report.get("architecture_summary", {}) or {}
 
     print(f"\n{'='*64}")
     print("SUMMARY")
@@ -541,6 +831,28 @@ def _print_summary(report: dict, no_judge: bool) -> None:
     )
     if rsum["total"]:
         print(f"Routing accuracy : {rsum['hit']}/{rsum['total']}  ({rsum['hit_rate']:.1%})")
+
+    # Architecture-aware block
+    if arch:
+        print("\nArchitecture metrics")
+        rfr = arch.get("replan_fire_rate")
+        if rfr is not None:
+            print(f"  replan fire rate           : {rfr:.1%}   (fired on {len(arch.get('replan_fired_ids', []))} sample(s))")
+        rsr = arch.get("rag_skip_rate_on_chitchat")
+        if rsr is not None:
+            print(f"  rag-skip rate (chitchat)   : {rsr:.1%}   (eligible {arch.get('rag_skip_eligible_total', 0)})")
+        per = arch.get("profile_echo_pass_rate")
+        if per is not None:
+            print(f"  profile-echo pass rate     : {per:.1%}   (over {arch.get('profile_echo_total_samples', 0)} sample(s))")
+        if arch.get("avg_rag_calls") is not None:
+            print(f"  avg rag calls / sample     : {arch['avg_rag_calls']}")
+        if arch.get("avg_retrieval_hits") is not None:
+            print(f"  avg retrieval hits / sample: {arch['avg_retrieval_hits']}")
+        dist = arch.get("critic_verdict_dist") or {}
+        if dist:
+            ordered = sorted(dist.items(), key=lambda kv: -kv[1])
+            dist_str = "  ".join(f"{k}={v}" for k, v in ordered)
+            print(f"  critic verdicts            : {dist_str}")
 
     if scores.get("overall_avg") is not None:
         print(f"\nOverall avg score: {scores['overall_avg']:.2f} / 5.00")
