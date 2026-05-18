@@ -15,6 +15,7 @@ LLM_API_MODE = (
     os.environ.get("LLM_API_MODE", "responses").strip().lower().replace("-", "_")
 )
 LLM_OUTPUT_VERSION = os.environ.get("LLM_OUTPUT_VERSION", "responses/v1")
+LLM_DISABLE_THINKING = os.environ.get("LLM_DISABLE_THINKING", "false").lower() in _TRUTHY
 
 # 长期记忆默认模板：用户画像 (User Profile)
 DEFAULT_USER_PROFILE = {
@@ -64,7 +65,6 @@ KNOWLEDGE_BASE_AGENT_SUBDIRS = {
   "trainer": os.environ.get("KNOWLEDGE_BASE_TRAINER_SUBDIR", "trainer"),
   "nutritionist": os.environ.get("KNOWLEDGE_BASE_NUTRITIONIST_SUBDIR", "nutritionist"),
   "wellness": os.environ.get("KNOWLEDGE_BASE_WELLNESS_SUBDIR", "wellness"),
-  "general": os.environ.get("KNOWLEDGE_BASE_GENERAL_SUBDIR", "general"),
   # Safety KB is consulted by Critic before review.
   "safety": os.environ.get("KNOWLEDGE_BASE_SAFETY_SUBDIR", "safety"),
 }

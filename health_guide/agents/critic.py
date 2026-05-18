@@ -28,10 +28,10 @@ from .query_rewriter import get_user_question
 from ._scratchpad import extract_facts_from_notes
 
 
-# All experts the Critic can request as replan reinforcement. Kept in sync
+# All specialist child agents the Critic can request as replan reinforcement. Kept in sync
 # with dispatcher.EXPERT_RUNNERS — used to decide if any unexecuted expert
 # is still available before firing REPLAN.
-_ALL_EXPERTS = ("Trainer", "Nutritionist", "Wellness", "General")
+_ALL_EXPERTS = ("Trainer", "Nutritionist", "Wellness")
 
 
 # Trigger for pulling authoritative medical literature from medical-mcp.
@@ -48,7 +48,7 @@ _EXPERT_LABELS = {
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
     "Wellness": "身心康复师",
-    "General": "助理",
+    "Orchestrator": "主助手",
 }
 
 
@@ -252,9 +252,9 @@ def critic_node(state):
     safety_section = _retrieve_safety(user_question, draft)
     medical_section, medical_hit = _retrieve_medical_context(user_question, draft)
 
-    executed = list(state.get("executed") or [])
+    executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
     replan_count = int(state.get("replan_count", 0) or 0)
-    unexecuted = [r for r in _ALL_EXPERTS if r not in executed and r != "General"]
+    unexecuted = [r for r in _ALL_EXPERTS if r not in executed]
     can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
 
     review_prompt = (
@@ -289,7 +289,7 @@ def critic_node(state):
             append_episode(
                 user_id=user_id,
                 query=get_user_question(state) or "",
-                experts=state.get("executed") or [],
+                experts=[role for role in (state.get("executed") or []) if role != "Orchestrator"],
                 gist=final_text,
                 facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
             )
@@ -302,7 +302,7 @@ def critic_node(state):
 
     verdict, payload = _parse_verdict(raw)
 
-    # ---- REPLAN path: hand back to Planner to bring in another expert ----
+    # ---- REPLAN path: hand back to Orchestrator to bring in another expert ----
     if verdict == "REPLAN" and can_replan:
         info = payload or {}
         needed = info.get("needed") or ""
@@ -339,7 +339,7 @@ def critic_node(state):
         append_episode(
             user_id=user_id,
             query=get_user_question(state) or "",
-            experts=state.get("executed") or [],
+            experts=[role for role in (state.get("executed") or []) if role != "Orchestrator"],
             gist=final_text,
             facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
         )

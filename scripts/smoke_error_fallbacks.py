@@ -23,19 +23,21 @@ class PassLLM:
         return AIMessage(content="VERDICT: PASS")
 
 
-def test_planner_fresh_fallback():
-    import health_guide.agents.planner as planner
+def test_orchestrator_fresh_fallback():
+    import health_guide.agents.orchestrator as orchestrator
 
-    old_llm = planner.llm
-    planner.llm = RaisingLLM()
+    old_llm = orchestrator.llm
+    orchestrator.llm = RaisingLLM()
     try:
-        out = planner.planner_node({"messages": [HumanMessage(content="你好")]})
+        out = orchestrator.orchestrator_node({"messages": [HumanMessage(content="你好")]})
     finally:
-        planner.llm = old_llm
+        orchestrator.llm = old_llm
 
-    assert out.get("plan") == ["General"], out
+    assert out.get("plan") == [], out
+    assert out.get("executed") == ["Orchestrator"], out
+    assert out.get("critic_verdict", "").startswith("ERROR_DIRECT:"), out
     assert out.get("next") == [], out
-    print("  ✓ Planner fresh failure falls back to General")
+    print("  ✓ Orchestrator fresh failure falls back to a direct safe answer")
 
 
 def test_rag_tool_error_fallback():
@@ -187,8 +189,8 @@ def test_critic_error_guard_adds_warning():
 
 
 def main():
-    print("\n[unit] Planner fallback")
-    test_planner_fresh_fallback()
+    print("\n[unit] Orchestrator fallback")
+    test_orchestrator_fresh_fallback()
     print("\n[unit] RAG tool fallback")
     test_rag_tool_error_fallback()
     print("\n[integration] Expert failure graph continuation")

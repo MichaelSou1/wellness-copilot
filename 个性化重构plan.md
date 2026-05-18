@@ -16,7 +16,7 @@
 |---|---|---|---|
 | TurnStart | — | 装载 episode_context | 不读 profile，无统一快照 |
 | Planner | 仅 `_profile_summary` | episode_context | 丢失 name/identity/relaxation |
-| Trainer / Nutritionist / Wellness / General | 整段 JSON dump（各自读盘） | 全量 messages | **裸 JSON 无重点圈出；零值占位被当真数据；prompt 说"代入数值"但无强制结构** |
+| Trainer / Nutritionist / Wellness / Orchestrator | 整段 JSON dump（各自读盘） | 全量 messages | **裸 JSON 无重点圈出；零值占位被当真数据；prompt 说"代入数值"但无强制结构** |
 | Aggregator | ❌ | ❌（仅 user_question） | **合成阶段洗掉 expert 已建立的个性化语境（重灾区）** |
 | Critic | 整段 JSON dump | ❌（仅 scratchpad） | 仅做安全审，无个性化引用校验 |
 
@@ -60,7 +60,7 @@
 
 - **`health_guide/agents/planner.py`**：删除 `_profile_summary`（74-96）和 `_get_profile` import；`_fresh_plan`（119-133）改读 `state["personalization_ctx"]["routing_digest"]`
 
-- **四个 expert（`trainer.py / nutritionist.py / wellness.py / general.py`）**：`_build_*_agent` 改签名为接收 `pctx: dict` 而非 `user_id`；从 `pctx["raw_profile_json"]` 拿 profile_text。注意 tool 还要写盘，`user_id` 仍由 `*_node` 经 `HEALTH_GUIDE_USER_ID` 环境变量传给 tools
+- **三个 expert + Orchestrator（`trainer.py / nutritionist.py / wellness.py / orchestrator.py`）**：`_build_*_agent` 改签名为接收 `pctx: dict` 而非 `user_id`；从 `pctx["raw_profile_json"]` 拿 profile_text。注意 tool 还要写盘，`user_id` 仍由 `*_node` 经 `HEALTH_GUIDE_USER_ID` 环境变量传给 tools
 
 - **`health_guide/agents/critic.py:121-124`**：同样切到 `pctx["raw_profile_json"]`
 
@@ -116,7 +116,7 @@ slot table 像数据不像知识；纯段落容易被略过；混合式兼顾。
 4. 如用户在本轮提供了新的身体信息，调用对应 set_/add_ 工具记录。
 ```
 
-Nutritionist 同结构，规则 1 改为引用 weight+goal，规则 2 改为数字 kcal/蛋白质 g；Wellness 规则 1 改为引用 stress_sources 名称；General 不加硬性规则（处理寒暄），仅放 user_card 避免对话脱节。
+Nutritionist 同结构，规则 1 改为引用 weight+goal，规则 2 改为数字 kcal/蛋白质 g；Wellness 规则 1 改为引用 stress_sources 名称；Orchestrator 不加硬性规则（处理寒暄、画像记录、边界说明），仅放 user_card 避免对话脱节。
 
 #### B.4 堵 Aggregator 漏点
 
@@ -249,7 +249,7 @@ EPISODE_INDEX_DIR = env str, default "~/.health_guide_indices/episodes"
 
 - 新增：`health_guide/personalization.py`，`health_guide/episode_memory.py`（Phase F），`scripts/smoke_personalization.py`，`scripts/smoke_semantic_episode.py`（Phase F），`scripts/migrate_episode_index.py`（Phase F）
 - 主改：`health_guide/agents/turn_start.py`，`health_guide/agents/trainer.py`（其余三 expert 同模板），`health_guide/agents/aggregator.py`，`health_guide/state.py`
-- 联动：`health_guide/agents/nutritionist.py / wellness.py / general.py / planner.py / critic.py`，`health_guide/episode_store.py`，`health_guide/tools.py`，`health_guide/config.py`，`health_guide/agents/_scratchpad.py`，`scripts/evaluate_output.py`，`eval/output_eval_dataset.jsonl`
+- 联动：`health_guide/agents/nutritionist.py / wellness.py / orchestrator.py / planner.py / critic.py`，`health_guide/episode_store.py`，`health_guide/tools.py`，`health_guide/config.py`，`health_guide/agents/_scratchpad.py`，`scripts/evaluate_output.py`，`eval/output_eval_dataset.jsonl`
 - 复用（只读不改）：`health_guide/rag.py` 的 `_lazy_load_models / _embed_model / _build_faiss_index / _dense_topk`（Phase F）
 
 ## 复用 vs 删除

@@ -11,8 +11,6 @@
 {"query":"疼痛管理应该分几个阶段渐进？","agent":"wellness","relevant_sources":["recovery_protocol.md"]}
 {"query":"持续失眠或情绪低落应该怎么办？","agent":"wellness","relevant_sources":["recovery_protocol.md"]}
 {"query":"短期压力大可以用哪些方法缓解？","agent":"wellness","relevant_sources":["stress_sleep.md"]}
-{"query":"你好，在吗","agent":"general","relevant_sources":["faq.md"]}
-{"query":"用户说谢谢时应该怎么回复？","agent":"general","relevant_sources":["faq.md"]}
 {"query":"WHO 对健康饮食的核心原则是什么？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"不健康饮食对慢性病有什么影响？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"USDA MyPlate 推荐的健康饮食结构是怎样的？","agent":"nutritionist","relevant_sources":["usda_dietary_guidelines.md"]}

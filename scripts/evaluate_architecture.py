@@ -106,8 +106,8 @@ def _install_capture() -> None:
 
     _utils_mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
     # Also patch every expert module's already-imported reference to create_agent.
-    from health_guide.agents import trainer as _t, nutritionist as _n, wellness as _w, general as _g
-    for mod in (_t, _n, _w, _g):
+    from health_guide.agents import trainer as _t, nutritionist as _n, wellness as _w, orchestrator as _o
+    for mod in (_t, _n, _w, _o):
         if hasattr(mod, "create_agent"):
             mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
 
@@ -116,10 +116,10 @@ def _install_capture() -> None:
         _disp_mod._orig_expert_runners = dict(_disp_mod.EXPERT_RUNNERS)  # type: ignore[attr-defined]
 
     def _make_timed_runner(role: str, fn: Callable) -> Callable:
-        def _runner(user_id: str, user_question: str, peer_notes_text: str = "") -> dict:
+        def _runner(*args, **kwargs) -> dict:
             t0 = time.perf_counter()
             try:
-                return fn(user_id, user_question, peer_notes_text)
+                return fn(*args, **kwargs)
             finally:
                 t1 = time.perf_counter()
                 _CAPTURE["expert_timings"].append({
@@ -139,7 +139,7 @@ def _guess_role_from_prompt(prompt: str) -> str | None:
         ("Trainer", "训练教练"),
         ("Nutritionist", "营养师"),
         ("Wellness", "身心"),
-        ("General", "助手"),
+        ("Orchestrator", "主 agent"),
     ):
         if tag in head:
             return role

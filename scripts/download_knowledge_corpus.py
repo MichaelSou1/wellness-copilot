@@ -30,11 +30,6 @@ SOURCES = {
         "url": "https://www.who.int/news-room/fact-sheets/detail/mental-health-strengthening-our-response",
         "output": "who_mental_health.md",
     },
-    "general": {
-        "title": "Microsoft Learn - Chit-chat knowledge base",
-        "url": "https://learn.microsoft.com/azure/ai-services/qnamaker/how-to/chit-chat-knowledge-base",
-        "output": "ms_chitchat_guide.md",
-    },
 }
 
 
@@ -98,17 +93,6 @@ def build_markdown(title: str, url: str, body_text: str) -> str:
     )
 
 
-def general_local_template() -> str:
-    return (
-        "\n\n---\n\n"
-        "## Local fallback templates for daily conversation\n\n"
-        "- Greeting: 你好呀，我在的。今天想聊训练、饮食，还是先随便聊聊？\n"
-        "- Thanks: 不客气～如果你愿意，我可以继续帮你把今天的计划细化成 3 个可执行步骤。\n"
-        "- Goodbye: 好的，随时来找我。祝你今天顺利，晚点我们再继续。\n"
-        "- Light support: 辛苦了，我们先做一个最小动作，比如 10 分钟散步或喝杯水。\n"
-    )
-
-
 def download_one(target_dir: Path, key: str, timeout: int, force: bool, retries: int) -> dict:
     requests = importlib.import_module("requests")
     config = SOURCES[key]
@@ -137,8 +121,6 @@ def download_one(target_dir: Path, key: str, timeout: int, force: bool, retries:
                     body_text = "(No extractable body text found. Please verify source page structure.)"
 
                 markdown = build_markdown(config["title"], url, body_text)
-                if key == "general":
-                    markdown += general_local_template()
                 out_path.write_text(markdown, encoding="utf-8")
                 return {
                     "bucket": key,
@@ -172,7 +154,7 @@ def main():
     parser.add_argument(
         "--only",
         default="all",
-        choices=["all", "shared", "nutritionist", "trainer", "wellness", "general"],
+        choices=["all", "shared", "nutritionist", "trainer", "wellness"],
         help="Download only one bucket or all",
     )
     parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds")

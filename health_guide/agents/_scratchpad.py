@@ -17,7 +17,7 @@ _EXPERT_LABELS = {
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
     "Wellness": "身心康复师",
-    "General": "助理",
+    "Orchestrator": "主助手",
 }
 
 

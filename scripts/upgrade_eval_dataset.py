@@ -21,7 +21,7 @@ What this fixes (driven by the v1 → v2 quality audit):
    language drawn from the reference answer.
 
 4. **Missing routing on chitchat-class samples**: rag_skip_002 ("谢谢") is
-   now routed to General (not FINISH) by the upgraded planner — make the
+   now handled by Orchestrator (not FINISH) by the upgraded orchestrator — make the
    expectation explicit. ``rag_skip_005`` ("再见") stays as a pure
    terminator.
 
@@ -113,8 +113,8 @@ def _fix_wellness_002(criteria: dict) -> None:
 
 
 def _fix_rag_skip_002(criteria: dict) -> None:
-    """`谢谢` is now answered by General (not FINISH)."""
-    criteria["expected_experts"] = ["General"]
+    """`谢谢` is now answered by Orchestrator (not FINISH)."""
+    criteria["expected_experts"] = ["Orchestrator"]
 
 
 def _drop_stale_replan_min(criteria: dict) -> None:

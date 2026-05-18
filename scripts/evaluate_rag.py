@@ -55,7 +55,9 @@ def load_dataset(path: Path) -> List[EvalSample]:
             query = (row.get("query") or "").strip()
             if not query:
                 raise ValueError(f"Line {line_no}: missing non-empty query")
-            agent = (row.get("agent") or "general").strip().lower()
+            agent = (row.get("agent") or "").strip().lower()
+            if not agent:
+                raise ValueError(f"Line {line_no}: missing non-empty agent")
 
             sources = set(row.get("relevant_sources") or [])
             chunks = set(row.get("relevant_chunk_ids") or [])
@@ -304,7 +306,7 @@ def evaluate(
     details = []
 
     for sample in samples:
-        kb = agent_kbs.get(sample.agent) or agent_kbs.get("general")
+        kb = agent_kbs.get(sample.agent)
         if kb is None:
             raise ValueError(f"No KB found for agent '{sample.agent}'")
         staged = kb.retrieve_stages(

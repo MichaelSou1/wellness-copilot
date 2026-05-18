@@ -1,9 +1,9 @@
-"""Dispatcher — parent orchestrator that invokes experts as callables.
+"""Dispatcher — invokes specialist child agents as callables.
 
-Architecture (post-refactor):
-1. Receives the plan from Planner.
+Architecture:
+1. Receives the specialist plan from Orchestrator.
 2. If any expert raised a replan request and the cap isn't hit, hands control
-   back to Planner with the reason.
+   back to Orchestrator with the reason.
 3. Otherwise consumes the whole plan in one shot:
    - Single expert  → call inline.
    - Multiple experts → run them in parallel via ThreadPoolExecutor.
@@ -13,7 +13,7 @@ Architecture (post-refactor):
 5. Empties `plan` and bubbles outputs up via state reducers.
 
 After the dispatcher returns, the graph routes to ReplanJudge (which decides
-whether to re-enter Planner) or directly to Aggregator. Per-expert
+whether to re-enter Orchestrator) or directly to Aggregator. Per-expert
 ReplanJudge calls are gone — judgment runs exactly once after the whole plan
 finishes.
 """
@@ -24,7 +24,6 @@ from typing import Callable, Dict, List
 
 from ._scratchpad import format_peer_notes
 from .fallbacks import expert_error_update
-from .general import run_general
 from .nutritionist import run_nutritionist
 from .query_rewriter import get_user_question
 from .trainer import run_trainer
@@ -37,7 +36,6 @@ EXPERT_RUNNERS: Dict[str, Callable[..., dict]] = {
     "Trainer": run_trainer,
     "Nutritionist": run_nutritionist,
     "Wellness": run_wellness,
-    "General": run_general,
 }
 
 
@@ -101,7 +99,7 @@ def dispatcher_node(state):
     replan_req = state.get("replan_request", "") or ""
     replan_count = int(state.get("replan_count", 0) or 0)
 
-    # ---- Replan path: hand control back to Planner ----
+    # ---- Replan path: hand control back to Orchestrator ----
     if replan_req and replan_count < REPLAN_CAP:
         return {
             "replan_request": "",
@@ -128,7 +126,7 @@ def dispatcher_node(state):
 
     batch = _run_plan(plan, user_id, user_question, prior_notes, pctx, episode_context)
 
-    executed = list(state.get("executed", []) or []) + [
+    executed = [role for role in (state.get("executed", []) or []) if role != "Orchestrator"] + [
         role for role in plan if role in EXPERT_RUNNERS
     ]
     return {

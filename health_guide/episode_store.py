@@ -136,7 +136,7 @@ def format_episodes_for_prompt(episodes: List[Dict[str, Any]], mark_source: bool
     lines = []
     iter_eps = episodes if mark_source else reversed(episodes)
     for ep in iter_eps:  # default path keeps legacy most-recent-first rendering
-        experts_str = "、".join(ep.get("experts") or []) or "General"
+        experts_str = "、".join(ep.get("experts") or []) or "Orchestrator"
         gist = (ep.get("gist") or "").strip()
         gist_part = f"：{gist}" if gist else ""
         facts = _facts_as_string(ep.get("facts") or {})

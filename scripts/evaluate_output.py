@@ -30,10 +30,13 @@ Output:  reports/output_eval_report.json
 """
 
 import argparse
+from contextlib import contextmanager
 import gzip
 import json
 import re
 import sys
+import threading
+import time
 import uuid
 import urllib.request
 import urllib.error
@@ -50,6 +53,11 @@ from health_guide.graph import graph  # noqa: E402
 from health_guide.llm import create_llm, extract_text_content  # noqa: E402
 from health_guide.profile_store import update_user_profile  # noqa: E402
 from health_guide import config as _cfg  # noqa: E402
+
+
+_PROFILE_TLS = threading.local()
+_PROFILE_LOCK = threading.RLock()
+_ACTIVE_PROFILER = None
 
 
 class _HttpJudgeLLM:
@@ -195,6 +203,356 @@ coherence（连贯性）
 
 
 # ---------------------------------------------------------------------------
+# Node-level performance profiling
+# ---------------------------------------------------------------------------
+
+_TOKEN_KEYS = ("input_tokens", "output_tokens", "total_tokens", "reasoning_tokens")
+
+
+def _round_ms(value: float) -> float:
+    return round(float(value or 0.0), 2)
+
+
+def _as_int(value) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _dig(mapping: dict, *keys: str) -> int:
+    for key in keys:
+        if isinstance(mapping, dict) and key in mapping:
+            return _as_int(mapping.get(key))
+    return 0
+
+
+def _normalize_usage(raw_usage) -> dict:
+    """Normalize OpenAI chat/responses usage into one stable token shape."""
+    if not isinstance(raw_usage, dict) or not raw_usage:
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "reasoning_tokens": 0,
+            "usage_available": False,
+            "raw": raw_usage or {},
+        }
+
+    input_tokens = _dig(raw_usage, "input_tokens", "prompt_tokens")
+    output_tokens = _dig(raw_usage, "output_tokens", "completion_tokens")
+    total_tokens = _dig(raw_usage, "total_tokens")
+    if not total_tokens:
+        total_tokens = input_tokens + output_tokens
+
+    output_details = (
+        raw_usage.get("output_token_details")
+        or raw_usage.get("completion_tokens_details")
+        or {}
+    )
+    reasoning_tokens = _dig(output_details, "reasoning", "reasoning_tokens")
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "usage_available": True,
+        "raw": raw_usage,
+    }
+
+
+def _usage_from_chat_result(result) -> dict:
+    raw_usage = {}
+    llm_output = getattr(result, "llm_output", None) or {}
+    if isinstance(llm_output, dict):
+        raw_usage = llm_output.get("token_usage") or {}
+
+    if not raw_usage:
+        generations = getattr(result, "generations", None) or []
+        if generations:
+            first_generation = generations[0]
+            if isinstance(first_generation, list):
+                first_generation = first_generation[0] if first_generation else None
+            msg = getattr(first_generation, "message", None)
+            usage_metadata = getattr(msg, "usage_metadata", None)
+            if isinstance(usage_metadata, dict):
+                raw_usage = dict(usage_metadata)
+
+    return _normalize_usage(raw_usage)
+
+
+def _metric_bucket() -> dict:
+    return {
+        "invocations": 0,
+        "wall_ms": 0.0,
+        "llm_calls": 0,
+        "llm_ms": 0.0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+    }
+
+
+def _merge_tokens(target: dict, usage: dict) -> None:
+    for key in _TOKEN_KEYS:
+        target[key] = _as_int(target.get(key)) + _as_int(usage.get(key))
+
+
+def _sorted_metric_dict(metrics: dict[str, dict]) -> dict[str, dict]:
+    return {
+        key: {
+            **{
+                k: (_round_ms(v) if k.endswith("_ms") else v)
+                for k, v in value.items()
+            }
+        }
+        for key, value in sorted(metrics.items())
+    }
+
+
+def _distribution(values: list[float | int]) -> dict:
+    vals = sorted(float(v) for v in values if v is not None)
+    if not vals:
+        return {}
+    n = len(vals)
+    p50_idx = (n - 1) // 2
+    p95_idx = min(n - 1, max(0, int((0.95 * n) + 0.999999) - 1))
+    return {
+        "count": n,
+        "min": round(vals[0], 2),
+        "p50": round(vals[p50_idx], 2),
+        "p95": round(vals[p95_idx], 2),
+        "max": round(vals[-1], 2),
+        "avg": round(sum(vals) / n, 2),
+    }
+
+
+def _top_level_node_from_metadata(metadata: dict) -> str:
+    checkpoint_ns = str(metadata.get("langgraph_checkpoint_ns") or "")
+    if checkpoint_ns:
+        first = checkpoint_ns.split("|", 1)[0]
+        node = first.split(":", 1)[0].strip()
+        if node:
+            return node
+    return str(metadata.get("langgraph_node") or "__unknown__")
+
+
+def _profile_scope(metadata: dict | None) -> tuple[str, str]:
+    ctx_node = getattr(_PROFILE_TLS, "node", "")
+    ctx_component = getattr(_PROFILE_TLS, "component", "")
+    if ctx_node:
+        return ctx_node, ctx_component or ctx_node
+
+    metadata = metadata or {}
+    node = _top_level_node_from_metadata(metadata)
+    inner_node = str(metadata.get("langgraph_node") or "")
+    component = node
+    if inner_node and inner_node != node:
+        component = f"{node}.{inner_node}"
+    return node, component
+
+
+class _GraphProfiler:
+    """Collect wall-clock node timings and LLM token usage for one sample."""
+
+    def __init__(self, sample_id: str):
+        self.sample_id = sample_id
+        self.started_at = time.perf_counter()
+        self._turn_started_at: float | None = None
+        self._last_event_at: float | None = None
+        self._turn_index = 0
+        self.node_invocations: list[dict] = []
+        self.llm_calls: list[dict] = []
+        self.turns: list[dict] = []
+        self._lock = threading.Lock()
+
+    def start_turn(self, turn_index: int, user_text: str) -> None:
+        now = time.perf_counter()
+        with self._lock:
+            self._turn_index = turn_index
+            self._turn_started_at = now
+            self._last_event_at = now
+            self.turns.append({
+                "turn_index": turn_index,
+                "user_excerpt": (user_text or "")[:160],
+                "wall_ms": 0.0,
+            })
+
+    def record_node_event(self, node: str) -> None:
+        if not node or node.startswith("__"):
+            return
+        now = time.perf_counter()
+        with self._lock:
+            prev = self._last_event_at or now
+            wall_ms = (now - prev) * 1000
+            self.node_invocations.append({
+                "turn_index": self._turn_index,
+                "node": node,
+                "wall_ms": _round_ms(wall_ms),
+            })
+            self._last_event_at = now
+
+    def end_turn(self) -> None:
+        now = time.perf_counter()
+        with self._lock:
+            if self.turns and self._turn_started_at is not None:
+                self.turns[-1]["wall_ms"] = _round_ms((now - self._turn_started_at) * 1000)
+            self._turn_started_at = None
+            self._last_event_at = None
+
+    def record_llm_call(
+        self,
+        *,
+        model_name: str,
+        metadata: dict | None,
+        usage: dict,
+        latency_ms: float,
+        error: str = "",
+    ) -> None:
+        node, component = _profile_scope(metadata)
+        with self._lock:
+            self.llm_calls.append({
+                "turn_index": self._turn_index,
+                "node": node,
+                "component": component,
+                "model": model_name,
+                "latency_ms": _round_ms(latency_ms),
+                "input_tokens": usage["input_tokens"],
+                "output_tokens": usage["output_tokens"],
+                "total_tokens": usage["total_tokens"],
+                "reasoning_tokens": usage["reasoning_tokens"],
+                "usage_available": usage["usage_available"],
+                "error": error,
+            })
+
+    def to_report(self) -> dict:
+        node_totals: dict[str, dict] = {}
+        component_totals: dict[str, dict] = {}
+
+        for invocation in self.node_invocations:
+            bucket = node_totals.setdefault(invocation["node"], _metric_bucket())
+            bucket["invocations"] += 1
+            bucket["wall_ms"] += float(invocation["wall_ms"])
+
+        for call in self.llm_calls:
+            node_bucket = node_totals.setdefault(call["node"], _metric_bucket())
+            node_bucket["llm_calls"] += 1
+            node_bucket["llm_ms"] += float(call["latency_ms"])
+            _merge_tokens(node_bucket, call)
+
+            comp_bucket = component_totals.setdefault(call["component"], _metric_bucket())
+            comp_bucket["llm_calls"] += 1
+            comp_bucket["llm_ms"] += float(call["latency_ms"])
+            _merge_tokens(comp_bucket, call)
+
+        total_wall_ms = _round_ms(sum(t["wall_ms"] for t in self.turns))
+        total_llm_ms = _round_ms(sum(c["latency_ms"] for c in self.llm_calls))
+        total_tokens = sum(_as_int(c["total_tokens"]) for c in self.llm_calls)
+
+        return {
+            "total_wall_ms": total_wall_ms,
+            "total_llm_ms": total_llm_ms,
+            "total_tokens": total_tokens,
+            "input_tokens": sum(_as_int(c["input_tokens"]) for c in self.llm_calls),
+            "output_tokens": sum(_as_int(c["output_tokens"]) for c in self.llm_calls),
+            "reasoning_tokens": sum(_as_int(c["reasoning_tokens"]) for c in self.llm_calls),
+            "llm_calls": len(self.llm_calls),
+            "turns": list(self.turns),
+            "node_totals": _sorted_metric_dict(node_totals),
+            "component_totals": _sorted_metric_dict(component_totals),
+            "node_invocations": list(self.node_invocations),
+            "llm_call_details": list(self.llm_calls),
+        }
+
+
+def _model_name_from_llm(llm_obj, result=None) -> str:
+    llm_output = getattr(result, "llm_output", None) or {}
+    if isinstance(llm_output, dict) and llm_output.get("model_name"):
+        return str(llm_output["model_name"])
+    for attr in ("model_name", "model"):
+        value = getattr(llm_obj, attr, None)
+        if value:
+            return str(value)
+    return llm_obj.__class__.__name__
+
+
+@contextmanager
+def _profile_graph_execution(profiler: _GraphProfiler):
+    """Temporarily instrument graph LLM calls for one evaluation sample."""
+    from langchain_openai import ChatOpenAI
+    import health_guide.agents.dispatcher as dispatcher_mod
+
+    global _ACTIVE_PROFILER
+
+    original_generate = ChatOpenAI._generate
+    original_runners = dict(dispatcher_mod.EXPERT_RUNNERS)
+
+    def profiled_generate(self, messages, stop=None, run_manager=None, **kwargs):
+        active = _ACTIVE_PROFILER
+        started = time.perf_counter()
+        metadata = dict(getattr(run_manager, "metadata", None) or {})
+        try:
+            result = original_generate(self, messages, stop=stop, run_manager=run_manager, **kwargs)
+        except Exception as exc:
+            if active:
+                active.record_llm_call(
+                    model_name=_model_name_from_llm(self),
+                    metadata=metadata,
+                    usage=_normalize_usage({}),
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                    error=type(exc).__name__,
+                )
+            raise
+
+        if active:
+            active.record_llm_call(
+                model_name=_model_name_from_llm(self, result),
+                metadata=metadata,
+                usage=_usage_from_chat_result(result),
+                latency_ms=(time.perf_counter() - started) * 1000,
+            )
+        return result
+
+    def wrap_runner(role: str, fn):
+        def wrapped(*args, **kwargs):
+            prev_node = getattr(_PROFILE_TLS, "node", "")
+            prev_component = getattr(_PROFILE_TLS, "component", "")
+            _PROFILE_TLS.node = "Dispatcher"
+            _PROFILE_TLS.component = f"Dispatcher.{role}"
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _PROFILE_TLS.node = prev_node
+                _PROFILE_TLS.component = prev_component
+
+        return wrapped
+
+    with _PROFILE_LOCK:
+        previous_profiler = _ACTIVE_PROFILER
+        _ACTIVE_PROFILER = profiler
+        ChatOpenAI._generate = profiled_generate
+        dispatcher_mod.EXPERT_RUNNERS = {
+            role: wrap_runner(role, fn)
+            for role, fn in original_runners.items()
+        }
+
+    try:
+        yield
+    finally:
+        with _PROFILE_LOCK:
+            ChatOpenAI._generate = original_generate
+            dispatcher_mod.EXPERT_RUNNERS = original_runners
+            _ACTIVE_PROFILER = previous_profiler
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -208,37 +566,55 @@ def _run_sample(
     sample: dict,
     user_id: str,
     verbose: bool = False,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, dict]:
     """Invoke the full graph for one sample (handles multi-turn).
 
-    Returns (final_answer_text, final_state_dict).
+    Returns (final_answer_text, final_state_dict, performance_profile).
     """
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
+    profiler = _GraphProfiler(sample.get("id", "unknown"))
 
     final_answer = ""
     final_state: dict = {}
 
-    for turn in sample.get("turns", []):
-        if turn.get("role") != "user":
-            continue
-        result = graph.invoke(
-            {
-                "messages": [HumanMessage(content=turn["content"])],
-                "profile_user_id": user_id,
-            },
-            config,
-        )
-        if result.get("messages"):
-            final_answer = extract_text_content(result["messages"][-1])
-        final_state = result
+    with _profile_graph_execution(profiler):
+        user_turn_index = 0
+        for turn in sample.get("turns", []):
+            if turn.get("role") != "user":
+                continue
+
+            profiler.start_turn(user_turn_index, turn["content"])
+            try:
+                for event in graph.stream(
+                    {
+                        "messages": [HumanMessage(content=turn["content"])],
+                        "profile_user_id": user_id,
+                    },
+                    config,
+                    stream_mode="updates",
+                ):
+                    if isinstance(event, dict):
+                        for node in event:
+                            profiler.record_node_event(str(node))
+            finally:
+                profiler.end_turn()
+
+            snapshot = graph.get_state(config)
+            final_state = dict(snapshot.values or {})
+            if final_state.get("messages"):
+                final_answer = extract_text_content(final_state["messages"][-1])
+            user_turn_index += 1
 
     if verbose:
         print(f"    executed      : {final_state.get('executed', [])}")
         print(f"    critic_verdict: {final_state.get('critic_verdict', '')}")
+        perf = profiler.to_report()
+        print(f"    graph wall ms : {perf.get('total_wall_ms', 0)}")
+        print(f"    graph tokens  : {perf.get('total_tokens', 0)}")
         print(f"    answer[:160]  : {final_answer[:160]!r}")
 
-    return final_answer, final_state
+    return final_answer, final_state, profiler.to_report()
 
 
 # Multi-char negation tokens that exempt a keyword from must_not_contain.
@@ -568,6 +944,144 @@ def _overall(scores: dict) -> float | None:
     return round(sum(vals) / len(vals), 2)
 
 
+def _merge_metric_totals(target: dict, source: dict) -> None:
+    target["invocations"] += _as_int(source.get("invocations"))
+    target["wall_ms"] += float(source.get("wall_ms") or 0)
+    target["llm_calls"] += _as_int(source.get("llm_calls"))
+    target["llm_ms"] += float(source.get("llm_ms") or 0)
+    _merge_tokens(target, source)
+
+
+def _finalize_perf_metrics(
+    metrics: dict[str, dict],
+    *,
+    total_wall_ms: float,
+    total_llm_ms: float,
+    total_tokens: int,
+) -> dict[str, dict]:
+    finalized: dict[str, dict] = {}
+    for name, metric in sorted(metrics.items()):
+        wall_ms = float(metric.get("wall_ms") or 0)
+        llm_ms = float(metric.get("llm_ms") or 0)
+        tokens = _as_int(metric.get("total_tokens"))
+        row = {
+            "invocations": _as_int(metric.get("invocations")),
+            "wall_ms": _round_ms(wall_ms),
+            "wall_share": round(wall_ms / total_wall_ms, 4) if total_wall_ms else 0,
+            "llm_calls": _as_int(metric.get("llm_calls")),
+            "llm_ms": _round_ms(llm_ms),
+            "llm_time_share": round(llm_ms / total_llm_ms, 4) if total_llm_ms else 0,
+            "input_tokens": _as_int(metric.get("input_tokens")),
+            "output_tokens": _as_int(metric.get("output_tokens")),
+            "total_tokens": tokens,
+            "reasoning_tokens": _as_int(metric.get("reasoning_tokens")),
+            "token_share": round(tokens / total_tokens, 4) if total_tokens else 0,
+            "wall_ms_distribution": _distribution(metric.pop("_wall_invocations", [])),
+            "llm_ms_distribution": _distribution(metric.pop("_llm_call_ms", [])),
+            "llm_tokens_distribution": _distribution(metric.pop("_llm_call_tokens", [])),
+        }
+        finalized[name] = row
+    return finalized
+
+
+def _aggregate_performance(results: list[dict]) -> dict:
+    """Aggregate node-level token/time profiling across result records."""
+    profiles = [r.get("performance") or {} for r in results if r.get("performance")]
+    profiles = [p for p in profiles if p.get("node_totals") or p.get("llm_call_details")]
+    if not profiles:
+        return {}
+
+    sample_wall = [float(p.get("total_wall_ms") or 0) for p in profiles]
+    sample_tokens = [_as_int(p.get("total_tokens")) for p in profiles]
+    sample_llm_calls = [_as_int(p.get("llm_calls")) for p in profiles]
+
+    by_node: dict[str, dict] = {}
+    by_component: dict[str, dict] = {}
+
+    for profile in profiles:
+        for node, totals in (profile.get("node_totals") or {}).items():
+            bucket = by_node.setdefault(node, _metric_bucket())
+            _merge_metric_totals(bucket, totals)
+
+        for component, totals in (profile.get("component_totals") or {}).items():
+            bucket = by_component.setdefault(component, _metric_bucket())
+            _merge_metric_totals(bucket, totals)
+
+        for invocation in profile.get("node_invocations") or []:
+            node = invocation.get("node")
+            if not node:
+                continue
+            bucket = by_node.setdefault(node, _metric_bucket())
+            bucket.setdefault("_wall_invocations", []).append(float(invocation.get("wall_ms") or 0))
+
+        for call in profile.get("llm_call_details") or []:
+            node = call.get("node") or "__unknown__"
+            component = call.get("component") or node
+            for bucket in (
+                by_node.setdefault(node, _metric_bucket()),
+                by_component.setdefault(component, _metric_bucket()),
+            ):
+                bucket.setdefault("_llm_call_ms", []).append(float(call.get("latency_ms") or 0))
+                bucket.setdefault("_llm_call_tokens", []).append(_as_int(call.get("total_tokens")))
+
+    total_wall_ms = sum(sample_wall)
+    total_llm_ms = sum(float(p.get("total_llm_ms") or 0) for p in profiles)
+    total_tokens = sum(sample_tokens)
+    total_llm_calls = sum(sample_llm_calls)
+
+    node_summary = _finalize_perf_metrics(
+        by_node,
+        total_wall_ms=total_wall_ms,
+        total_llm_ms=total_llm_ms,
+        total_tokens=total_tokens,
+    )
+    component_summary = _finalize_perf_metrics(
+        by_component,
+        total_wall_ms=total_wall_ms,
+        total_llm_ms=total_llm_ms,
+        total_tokens=total_tokens,
+    )
+
+    def _top(summary: dict[str, dict], key: str, limit: int = 8) -> list[dict]:
+        rows = sorted(
+            summary.items(),
+            key=lambda kv: kv[1].get(key, 0),
+            reverse=True,
+        )[:limit]
+        return [
+            {
+                "name": name,
+                key: row.get(key, 0),
+                "token_share": row.get("token_share", 0),
+                "wall_share": row.get("wall_share", 0),
+                "llm_time_share": row.get("llm_time_share", 0),
+            }
+            for name, row in rows
+        ]
+
+    return {
+        "profiled_samples": len(profiles),
+        "total_wall_ms": _round_ms(total_wall_ms),
+        "total_llm_ms": _round_ms(total_llm_ms),
+        "total_llm_calls": total_llm_calls,
+        "total_tokens": total_tokens,
+        "input_tokens": sum(_as_int(p.get("input_tokens")) for p in profiles),
+        "output_tokens": sum(_as_int(p.get("output_tokens")) for p in profiles),
+        "reasoning_tokens": sum(_as_int(p.get("reasoning_tokens")) for p in profiles),
+        "avg_wall_ms_per_sample": _round_ms(total_wall_ms / len(profiles)) if profiles else 0,
+        "avg_tokens_per_sample": round(total_tokens / len(profiles), 2) if profiles else 0,
+        "wall_ms_distribution_per_sample": _distribution(sample_wall),
+        "tokens_distribution_per_sample": _distribution(sample_tokens),
+        "llm_calls_distribution_per_sample": _distribution(sample_llm_calls),
+        "by_node": node_summary,
+        "by_component": component_summary,
+        "top_nodes_by_tokens": _top(node_summary, "total_tokens"),
+        "top_nodes_by_wall_ms": _top(node_summary, "wall_ms"),
+        "top_components_by_tokens": _top(component_summary, "total_tokens"),
+        "top_components_by_llm_ms": _top(component_summary, "llm_ms"),
+    }
+
+
 def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> dict:
     """Build the full report dict from a flat list of result records."""
 
@@ -741,6 +1255,7 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
             }
             for r in low_scorers
         ],
+        "performance_summary": _aggregate_performance(results),
         "details": results,
     }
 
@@ -767,7 +1282,7 @@ def _run_samples(
         _seed_profile(user_id, sample.get("profile", {}))
 
         try:
-            answer, state = _run_sample(sample, user_id, verbose=verbose)
+            answer, state, performance = _run_sample(sample, user_id, verbose=verbose)
         except Exception as exc:
             print(f"  [ERROR] graph raised: {exc}")
             results.append({
@@ -782,6 +1297,7 @@ def _run_samples(
                 "routing": {},
                 "scores": {},
                 "overall_score": None,
+                "performance": {},
             })
             continue
 
@@ -838,6 +1354,7 @@ def _run_samples(
             "routing": routing,
             "scores": scores,
             "overall_score": _overall(scores),
+            "performance": performance,
         })
 
     return results
@@ -848,6 +1365,7 @@ def _print_summary(report: dict, no_judge: bool) -> None:
     rsum = report["routing_summary"]
     scores = report["scores"]
     arch  = report.get("architecture_summary", {}) or {}
+    perf  = report.get("performance_summary", {}) or {}
 
     print(f"\n{'='*64}")
     print("SUMMARY")
@@ -887,6 +1405,32 @@ def _print_summary(report: dict, no_judge: bool) -> None:
             ordered = sorted(dist.items(), key=lambda kv: -kv[1])
             dist_str = "  ".join(f"{k}={v}" for k, v in ordered)
             print(f"  critic verdicts            : {dist_str}")
+
+    if perf:
+        print("\nPerformance profile")
+        print(f"  total graph wall time      : {perf.get('total_wall_ms', 0)} ms")
+        print(f"  total LLM time             : {perf.get('total_llm_ms', 0)} ms")
+        print(f"  total LLM calls            : {perf.get('total_llm_calls', 0)}")
+        print(
+            f"  total tokens               : {perf.get('total_tokens', 0)} "
+            f"(in={perf.get('input_tokens', 0)}, out={perf.get('output_tokens', 0)})"
+        )
+        print(f"  avg tokens / sample        : {perf.get('avg_tokens_per_sample', 0)}")
+
+        top_nodes = perf.get("top_nodes_by_tokens") or []
+        if top_nodes:
+            top_str = "  ".join(
+                f"{r['name']}={r.get('total_tokens', 0)}"
+                for r in top_nodes[:5]
+            )
+            print(f"  top token nodes            : {top_str}")
+        top_slow = perf.get("top_nodes_by_wall_ms") or []
+        if top_slow:
+            slow_str = "  ".join(
+                f"{r['name']}={r.get('wall_ms', 0)}ms"
+                for r in top_slow[:5]
+            )
+            print(f"  top wall-time nodes        : {slow_str}")
 
     if scores.get("overall_avg") is not None:
         print(f"\nOverall avg score: {scores['overall_avg']:.2f} / 5.00")

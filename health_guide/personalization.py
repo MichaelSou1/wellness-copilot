@@ -99,7 +99,7 @@ def is_meaningful(profile: Dict[str, Any]) -> bool:
 
 
 def profile_routing_digest(profile: Dict[str, Any]) -> str:
-    """Concise routing-relevant summary for Planner rules."""
+    """Concise routing-relevant summary for Orchestrator rules."""
     parts: List[str] = []
     name = _meaningful_name(profile)
     identity = _meaningful_identity(profile)

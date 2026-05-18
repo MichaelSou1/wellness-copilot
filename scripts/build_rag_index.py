@@ -23,7 +23,7 @@ def main():
     parser.add_argument(
         "--agent",
         default="",
-        help="Optional agent namespace to prebuild (trainer/nutritionist/wellness/general). Empty means build all.",
+        help="Optional agent namespace to prebuild (trainer/nutritionist/wellness/safety). Empty means build all.",
     )
     parser.add_argument("--rebuild", action="store_true", help="Force rebuild: clear cache and regenerate")
     parser.add_argument(

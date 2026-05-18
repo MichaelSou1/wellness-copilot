@@ -2,13 +2,13 @@
 
 Problem: in multi-turn dialogue users send messages like "那个怎么吃" /
 "再练一次行吗" — these are uninterpretable without the prior context.
-We previously made the Planner look only at the latest user message to avoid
+We previously made the parent agent look only at the latest user message to avoid
 spurious FINISH outputs on follow-ups. That fixes FINISH but loses
 coreference resolution.
 
 Solution: a dedicated rewriter LLM call that produces a *self-contained*
 restatement of the latest user message, drawing on prior turns. Downstream
-"meta" nodes (Planner / ReplanJudge / Aggregator / Critic) read this
+"meta" nodes (Orchestrator / ReplanJudge / Aggregator / Critic) read this
 restatement via `get_user_question()`. Experts still see the full
 conversation, so they continue to handle context naturally.
 
@@ -133,7 +133,7 @@ def query_rewriter_node(state):
     return {"contextualized_query": rewritten or latest_text}
 
 
-# ---- Shared helper used by Planner / Aggregator / Critic / ReplanJudge ----
+# ---- Shared helper used by Orchestrator / Aggregator / Critic / ReplanJudge ----
 
 def get_user_question(state, messages: Optional[list] = None) -> str:
     """Return the question to reason about.
@@ -152,5 +152,5 @@ def get_user_question(state, messages: Optional[list] = None) -> str:
 
 
 def get_user_message_for_planner(state) -> AnyMessage:
-    """Build a HumanMessage carrying the contextualized query for Planner."""
+    """Build a HumanMessage carrying the contextualized query for legacy callers."""
     return HumanMessage(content=get_user_question(state))

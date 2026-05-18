@@ -2,19 +2,17 @@
 
 Goal: prove that follow-up questions with omitted/referential phrasing
 ("那 / 那个 / 再练 / 还能...") are correctly rewritten by QueryRewriter and
-routed by Planner — instead of triggering FINISH (the old failure mode when
-Planner saw raw history) or being misrouted to the wrong expert.
+routed by Orchestrator instead of being misrouted to the wrong specialist.
 
 Three layers:
 
 1. **Unit**: QueryRewriter passes through on first turn (no prior AI).
 2. **Integration (deterministic)**: stub the rewriter to a known rewritten
-   query, verify Planner / Aggregator / Critic actually see it via
+   query, verify Orchestrator / Aggregator / Critic actually see it via
    `get_user_question`.
 3. **Live LLM**: run two real turns end-to-end; turn 2 uses a pronoun
    ("那这个练完之后") and we check that the rewriter produces a self-
-   contained query referencing turn-1 context, and that Planner doesn't
-   FINISH.
+   contained query referencing turn-1 context, and that Orchestrator delegates.
 """
 import os
 import sys
@@ -79,11 +77,9 @@ def test_live_multi_turn_coreference():
                     value = {}
                 if node == "QueryRewriter" and value.get("contextualized_query"):
                     contextualized = value["contextualized_query"]
-                if node == "Planner":
+                if node == "Orchestrator":
                     p = value.get("plan", [])
                     plans.append(p)
-                    if value.get("next") == ["FINISH"]:
-                        finished_only = True
                 if node == "Dispatcher" and value.get("executed"):
                     executed = value["executed"]
                 if node == "Critic" and value.get("messages"):
@@ -126,14 +122,14 @@ def test_live_multi_turn_coreference():
     assert "减脂" in r2["contextualized"], (
         f"rewriter should resolve coref by mentioning 减脂 context; got: {r2['contextualized']}"
     )
-    assert not r2["finished_only"], "Planner must not FINISH on a follow-up question"
+    assert not r2["finished_only"], "Orchestrator must not finish without handling a follow-up question"
     assert r2["executed"], "turn 2 should execute at least one expert"
     # The question is training-shaped, so Trainer should be in there.
     assert "Trainer" in r2["executed"], (
         f"expected Trainer in executed for a training question, got {r2['executed']}"
     )
     assert r2["final_answer"], "turn 2 should produce a final answer"
-    print("  ✓ live: coreference resolved, Planner routed to Trainer, graph finished")
+    print("  ✓ live: coreference resolved, Orchestrator routed to Trainer, graph finished")
 
 
 def main():

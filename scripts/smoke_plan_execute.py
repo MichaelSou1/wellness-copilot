@@ -1,6 +1,6 @@
-"""Smoke test for plan-and-execute (Planner + Dispatcher + expert batch).
+"""Smoke test for plan-and-execute (Orchestrator + Dispatcher + expert batch).
 
-Goal: prove that a multi-expert turn routes through Planner/Dispatcher,
+Goal: prove that a multi-expert turn routes through Orchestrator/Dispatcher,
 produces scratchpad notes for both experts, reaches Critic, and carries the
 per-turn personalization context built by TurnStart.
 
@@ -74,8 +74,8 @@ def main():
     user_id = "smoke_plan_user"
     os.environ["HEALTH_GUIDE_USER_ID"] = user_id
 
-    # Multi-expert query — keyword router will pick Trainer + Nutritionist
-    # ('练腿' + '吃什么') and Planner sorts them as Trainer -> Nutritionist.
+    # Multi-expert query — Orchestrator should pick Trainer + Nutritionist
+    # ('练腿' + '吃什么') and sort them as Trainer -> Nutritionist.
     events, final, final_state = run_turn(
         thread_id, user_id,
         "我刚练完腿，今晚该吃什么帮助恢复？训练动作上有没有要注意的？",

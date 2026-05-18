@@ -142,6 +142,7 @@ def turn_start_node(state):
         "contextualized_query": "",
         "draft_answer": "",
         "critic_verdict": "",
+        "orchestrator_decision": "",
     }
 
     # Don't count the synthetic summary marker against the window budget.

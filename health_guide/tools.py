@@ -64,12 +64,6 @@ def retrieve_wellness_knowledge(query: str, top_k: int = 4):
 
 
 @tool
-def retrieve_general_knowledge(query: str, top_k: int = 4):
-    """通用助手专用：从 general 知识库检索常识/健康通识。"""
-    return _retrieve_by_agent(query=query, top_k=top_k, agent="general")
-
-
-@tool
 def retrieve_safety_guidelines(query: str, top_k: int = 3):
     """安全审核员专用：从 safety 知识库检索运动伤病/症状就医/饮食极端等安全条目。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="safety")
@@ -247,7 +241,6 @@ tools = [
     retrieve_trainer_knowledge,
     retrieve_nutritionist_knowledge,
     retrieve_wellness_knowledge,
-    retrieve_general_knowledge,
     retrieve_safety_guidelines,
     calculate_tdee,
     get_user_profile,

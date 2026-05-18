@@ -14,7 +14,7 @@ EXPERT_LABELS = {
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
     "Wellness": "身心康复师",
-    "General": "通用助理",
+    "Orchestrator": "主助手",
 }
 
 _EXPERT_FALLBACKS = {
@@ -29,10 +29,6 @@ _EXPERT_FALLBACKS = {
     "Wellness": (
         "抱歉，身心恢复建议节点暂时不可用。我先给你一个保守原则：先降低训练和工作负荷，保证睡眠，"
         "若出现持续疼痛、胸闷、头晕、心率异常或失眠超过两周，请优先就医评估。"
-    ),
-    "General": (
-        "抱歉，通用助理节点暂时不可用。你可以稍后重试；如果问题涉及明显身体不适或急性症状，"
-        "请优先联系医生或当地急救服务。"
     ),
 }
 
@@ -58,7 +54,7 @@ SAFETY_WARNING = (
 
 def default_fresh_plan() -> dict:
     return {
-        "plan": ["General"],
+        "plan": [],
         "executed": [],
         "replan_count": 0,
         "replan_context": "",
@@ -75,7 +71,10 @@ def empty_replan() -> dict:
 
 
 def expert_fallback_answer(role: str, exc: Exception | None = None) -> str:
-    answer = _EXPERT_FALLBACKS.get(role, _EXPERT_FALLBACKS["General"])
+    answer = _EXPERT_FALLBACKS.get(
+        role,
+        "抱歉，这个节点暂时不可用。你可以稍后重试；如果问题涉及明显身体不适或急性症状，请优先联系医生或当地急救服务。",
+    )
     if exc is None:
         return answer
     return f"{answer}\n\n（系统提示：{role} 节点临时失败，已启用保守兜底。）"
@@ -125,3 +124,14 @@ def add_safety_warning(draft: str) -> str:
     if draft.startswith("安全提示："):
         return draft
     return f"{SAFETY_WARNING}\n\n{draft}"
+
+
+def orchestrator_error_answer(exc: Exception | None = None) -> str:
+    answer = (
+        "抱歉，我这轮处理时遇到了一点系统问题。"
+        "如果你是在问明显身体不适、急性症状、用药或处方问题，请先联系医生或当地急救服务；"
+        "其他健康管理问题可以再发一次，我会继续帮你拆解。"
+    )
+    if exc is None:
+        return answer
+    return f"{answer}\n\n（系统提示：Orchestrator 临时失败，已启用保守兜底。）"

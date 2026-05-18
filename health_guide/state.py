@@ -60,22 +60,24 @@ class AgentState(TypedDict, total=False):
     draft_answer: Annotated[str, _take_last_str]
     # Critic 审核记录（用于可观测性）
     critic_verdict: Annotated[str, _take_last_str]
-    # plan-and-execute：Planner 给出的待执行专家队列（按顺序消费）
+    # Orchestrator 给出的待执行专家队列（按顺序消费）
     plan: List[str]
     # 已经执行过的专家（顺序保留，Aggregator/Critic 读这个而非 next）
     executed: List[str]
     # 动态 replan：专家通过 [REPLAN_REQUEST: <理由>] 标记请求重新规划
     replan_request: Annotated[str, _take_last_str]
-    # Dispatcher 把 replan 理由传给 Planner 的载体
+    # Dispatcher/Critic 把 replan 理由传给 Orchestrator 的载体
     replan_context: Annotated[str, _take_last_str]
     # 同一轮内的 replan 次数，避免无限循环
     replan_count: int
     # QueryRewriter 改写后的独立问题；解决多轮指代消解
-    # （Planner/Judge/Aggregator/Critic 优先用这个而非最新 HumanMessage）
+    # （Orchestrator/Judge/Aggregator/Critic 优先用这个而非最新 HumanMessage）
     contextualized_query: Annotated[str, _take_last_str]
     # 长历史压缩后的摘要（TurnStart 写入，作为 SystemMessage 注入 messages）
     history_summary: Annotated[str, _take_last_str]
-    # 跨 thread 情节记忆（TurnStart 从 episode_store 读取，供 Planner 路由参考）
+    # 跨 thread 情节记忆（TurnStart 从 episode_store 读取，供 Orchestrator 路由参考）
     episode_context: Annotated[str, _take_last_str]
-    # 本轮统一个性化快照（TurnStart 构建，Planner/Experts/Aggregator/Critic 只读 state）
+    # 本轮统一个性化快照（TurnStart 构建，Orchestrator/Experts/Aggregator/Critic 只读 state）
     personalization_ctx: Annotated[Dict, _take_last_dict]
+    # Orchestrator 决策：DIRECT / PLAN / NO_REPLAN，用于 graph 条件路由和观测。
+    orchestrator_decision: Annotated[str, _take_last_str]

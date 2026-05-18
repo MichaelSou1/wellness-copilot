@@ -7,7 +7,7 @@ _EXPERT_DOMAIN_LABELS = {
     "Trainer":      "训练与运动恢复",
     "Nutritionist": "饮食与营养",
     "Wellness":     "睡眠、压力与身心恢复",
-    "General":      "综合健康常识",
+    "Orchestrator": "综合健康常识",
 }
 
 _SYSTEM_PROMPT = """\
@@ -44,7 +44,10 @@ _SYNTHESIS_TEMPLATE = """\
 def aggregator_node(state):
     """Produce draft_answer for Critic to review (no messages append here)."""
     # plan-and-execute: 用 executed (本轮已执行的专家顺序列表) 而非 next
-    current_experts = state.get("executed") or state.get("next", [])
+    current_experts = [
+        role for role in (state.get("executed") or state.get("next", []))
+        if role != "Orchestrator"
+    ]
     all_responses = state.get("expert_responses", {})
     relevant = {k: v for k, v in all_responses.items() if k in current_experts}
 

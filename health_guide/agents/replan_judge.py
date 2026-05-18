@@ -22,7 +22,7 @@ from ..llm import extract_text_content, llm
 from .query_rewriter import get_user_question
 
 
-_VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness", "General"}
+_VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness"}
 
 # Cap mirrors dispatcher.REPLAN_CAP; once we've spent all replan slots there
 # is nothing more the judge can usefully ask for. Avoids a Dispatcher↔Judge
@@ -33,7 +33,6 @@ _EXPERT_LABELS = {
     "Trainer": "训练教练（运动/动作/恢复）",
     "Nutritionist": "营养师（饮食/热量/营养素）",
     "Wellness": "身心康复师（睡眠/压力/情绪/恢复节奏）",
-    "General": "通用健康助理（寒暄/常识）",
 }
 
 
@@ -50,7 +49,6 @@ _JUDGE_SYSTEM = """\
 - Trainer: 训练/动作/运动恢复
 - Nutritionist: 饮食/营养/热量
 - Wellness: 睡眠/压力/情绪/身心恢复
-- General: 寒暄/常识兜底
 
 输出格式（严格遵守）：
 - 不需要追加：仅一行 `VERDICT: CONTINUE`
@@ -87,7 +85,7 @@ def _parse_verdict(text: str) -> str:
 
 
 def replan_judge_node(state):
-    # Remaining planned experts already decided by Planner — nothing to replan yet.
+    # Remaining planned experts already decided by Orchestrator — nothing to replan yet.
     if state.get("plan"):
         return {}
 
@@ -96,9 +94,14 @@ def replan_judge_node(state):
     if int(state.get("replan_count", 0) or 0) >= _REPLAN_CAP:
         return {}
 
-    executed = state.get("executed") or []
+    executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
     if not executed:
         # Nothing to judge yet.
+        return {}
+    if len(executed) >= 2:
+        # Multi-specialist plans already carry cross-domain coverage; let
+        # Aggregator/Critic handle residual quality gaps instead of spending
+        # another meta-LLM call that often over-adds a third expert.
         return {}
 
     last_expert = executed[-1]
