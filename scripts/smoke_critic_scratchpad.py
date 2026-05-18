@@ -63,14 +63,19 @@ def run_turn(thread_id: str, user_id: str, query: str) -> None:
                 final_answer = text
                 print(f"   final_msg: {text[:200]}{'...' if len(text) > 200 else ''}")
 
+    snapshot = graph.get_state(config)
+    final_state = getattr(snapshot, "values", {}) or {}
+
     print("\n--- assertions ---")
     print(f"   saw scratchpad note: {saw_notes}")
     print(f"   saw aggregator draft: {saw_draft}")
     print(f"   saw critic verdict:  {saw_critic}")
     print(f"   final answer len:    {len(final_answer)}")
+    print(f"   personalization_ctx: {bool(final_state.get('personalization_ctx'))}")
     assert final_answer, "final answer is empty"
     assert saw_critic, "Critic did not run"
     assert saw_draft, "Aggregator did not produce draft"
+    assert final_state.get("personalization_ctx"), "TurnStart did not build personalization_ctx"
 
 
 def main():

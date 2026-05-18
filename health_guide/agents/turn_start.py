@@ -22,8 +22,20 @@ from langchain_core.messages import (
     SystemMessage,
 )
 
-from ..episode_store import format_episodes_for_prompt, get_recent_episodes
+from ..config import (
+    EPISODE_SEMANTIC_MIN_COUNT,
+    EPISODE_SEMANTIC_RETRIEVAL_ENABLED,
+    EPISODE_SEMANTIC_TOP_K,
+)
+from ..episode_store import (
+    episode_id,
+    format_episodes_for_prompt,
+    get_recent_episodes,
+    total_episode_count,
+)
+from ..episode_memory import EpisodeMemory
 from ..llm import extract_text_content, llm
+from ..personalization import build_personalization_ctx
 from ..state import RESET_SENTINEL
 
 
@@ -63,16 +75,57 @@ def _render_messages(msgs):
     return "\n".join(lines)
 
 
+def _latest_human_text(messages) -> str:
+    for msg in reversed(messages or []):
+        if isinstance(msg, HumanMessage) or getattr(msg, "type", None) == "human":
+            return extract_text_content(msg).strip()
+    return ""
+
+
+def _load_episode_context(user_id: str, current_query: str) -> str:
+    recent_eps = get_recent_episodes(user_id, n=2)
+    for ep in recent_eps:
+        ep["_memory_source"] = "最近"
+
+    semantic_eps = []
+    if (
+        EPISODE_SEMANTIC_RETRIEVAL_ENABLED
+        and current_query
+        and total_episode_count(user_id) >= EPISODE_SEMANTIC_MIN_COUNT
+    ):
+        recent_ids = {ep.get("id") or episode_id(ep) for ep in recent_eps}
+        try:
+            semantic_eps = EpisodeMemory(user_id).retrieve_similar(
+                current_query,
+                top_k=EPISODE_SEMANTIC_TOP_K,
+                exclude_ids=recent_ids,
+            )
+        except Exception:
+            semantic_eps = []
+
+    # Keep recency as the first anchor in prompt order, then add older semantic
+    # recalls. get_recent_episodes returns oldest-first, so reverse the recent
+    # slice for newest-first display.
+    merged = list(reversed(recent_eps)) + semantic_eps
+    return format_episodes_for_prompt(merged, mark_source=True)
+
+
 def turn_start_node(state):
     user_id = state.get("profile_user_id", "default_user")
+    messages = state.get("messages", []) or []
+    current_query = _latest_human_text(messages)
     try:
-        episodes = get_recent_episodes(user_id, n=5)
-        episode_context = format_episodes_for_prompt(episodes)
+        episode_context = _load_episode_context(user_id, current_query)
     except Exception:
         episode_context = ""
+    try:
+        personalization_ctx = build_personalization_ctx(user_id)
+    except Exception:
+        personalization_ctx = {}
 
     update = {
         "episode_context": episode_context,
+        "personalization_ctx": personalization_ctx,
         # Reset accumulator fields via sentinels honored by state.py reducers
         "agent_notes": {RESET_SENTINEL: True},
         "expert_responses": {RESET_SENTINEL: True},
@@ -91,7 +144,6 @@ def turn_start_node(state):
         "critic_verdict": "",
     }
 
-    messages = state.get("messages", []) or []
     # Don't count the synthetic summary marker against the window budget.
     non_summary = [m for m in messages if getattr(m, "id", None) != HISTORY_SUMMARY_ID]
     if len(non_summary) <= MAX_MESSAGES_BEFORE_SUMMARY:

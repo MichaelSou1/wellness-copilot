@@ -375,6 +375,10 @@ def _check_assertions(answer: str, state: dict, criteria: dict) -> dict[str, boo
         personalization dimension to an assertion (e.g., the user's weight
         "80kg" or injury "ACL" should surface in the reply).
 
+      must_contain_one_of
+        Alias for "at least one anchor from this list must appear". Intended
+        for personalization quantification, e.g. ["24", "75", "ACL"].
+
       expected_critic_verdict
         Allowed values for state.critic_verdict. Supports:
           - "PASS"   → matches PASS, PASS+MED, PASS_FALLBACK
@@ -399,6 +403,16 @@ def _check_assertions(answer: str, state: dict, criteria: dict) -> dict[str, boo
             continue
         hit = next((kw for kw in group if kw.lower() in answer_lower), None)
         rule_key = f"must_contain_any:{'|'.join(group)}"
+        results[rule_key] = bool(hit)
+
+    one_of_groups = criteria.get("must_contain_one_of", [])
+    if one_of_groups and all(isinstance(x, str) for x in one_of_groups):
+        one_of_groups = [one_of_groups]
+    for group in one_of_groups:
+        if not group:
+            continue
+        hit = next((kw for kw in group if str(kw).lower() in answer_lower), None)
+        rule_key = f"must_contain_one_of:{'|'.join(str(x) for x in group)}"
         results[rule_key] = bool(hit)
 
     for kw in criteria.get("must_not_contain", []):
@@ -657,6 +671,18 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
         round(sum(echo_samples) / len(echo_samples), 3) if echo_samples else None
     )
 
+    quant_samples = []
+    for r in results:
+        quant_rules = [
+            k for k in r.get("assertions", {})
+            if k.startswith("must_contain_one_of:") or k.startswith("profile_echo:")
+        ]
+        if quant_rules:
+            quant_samples.append(all(r["assertions"][k] for k in quant_rules))
+    personalization_quantification_rate = (
+        round(sum(quant_samples) / len(quant_samples), 3) if quant_samples else None
+    )
+
     # Average tool/RAG counts and replan count
     avg_rag_calls = (
         round(sum(r.get("rag_calls", 0) for r in results) / len(results), 2) if results else None
@@ -693,6 +719,8 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
             "rag_skip_eligible_total": len(rag_skip_eligible),
             "profile_echo_pass_rate": profile_echo_rate,
             "profile_echo_total_samples": len(echo_samples),
+            "personalization_quantification_rate": personalization_quantification_rate,
+            "personalization_quantification_total": len(quant_samples),
             "avg_rag_calls": avg_rag_calls,
             "avg_retrieval_hits": avg_retrieval_hits,
         },
@@ -844,6 +872,12 @@ def _print_summary(report: dict, no_judge: bool) -> None:
         per = arch.get("profile_echo_pass_rate")
         if per is not None:
             print(f"  profile-echo pass rate     : {per:.1%}   (over {arch.get('profile_echo_total_samples', 0)} sample(s))")
+        pqr = arch.get("personalization_quantification_rate")
+        if pqr is not None:
+            print(
+                f"  personalization quant rate : {pqr:.1%}   "
+                f"(over {arch.get('personalization_quantification_total', 0)} sample(s))"
+            )
         if arch.get("avg_rag_calls") is not None:
             print(f"  avg rag calls / sample     : {arch['avg_rag_calls']}")
         if arch.get("avg_retrieval_hits") is not None:

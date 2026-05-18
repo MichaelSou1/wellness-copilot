@@ -50,7 +50,14 @@ def _merge_result(acc: dict, result: dict) -> None:
     acc["retrieval_hits"] += int(result.get("retrieval_hits") or 0)
 
 
-def _run_plan(plan: List[str], user_id: str, user_question: str, prior_notes: dict) -> dict:
+def _run_plan(
+    plan: List[str],
+    user_id: str,
+    user_question: str,
+    prior_notes: dict,
+    pctx: dict,
+    episode_context: str,
+) -> dict:
     """Execute experts in the plan and return merged state update."""
     runners = [(role, EXPERT_RUNNERS[role]) for role in plan if role in EXPERT_RUNNERS]
     acc = {
@@ -64,7 +71,7 @@ def _run_plan(plan: List[str], user_id: str, user_question: str, prior_notes: di
 
     def _safe_call(role: str, fn, peer_text: str) -> dict:
         try:
-            return fn(user_id, user_question, peer_text)
+            return fn(user_id, user_question, peer_text, pctx, episode_context)
         except Exception as e:
             # run_* already wraps; this is a belt-and-braces guard so a
             # rogue runner can never abort the dispatch batch.
@@ -116,8 +123,10 @@ def dispatcher_node(state):
     user_id = state.get("profile_user_id", "default_user")
     user_question = get_user_question(state)
     prior_notes = dict(state.get("agent_notes") or {})
+    pctx = dict(state.get("personalization_ctx") or {})
+    episode_context = state.get("episode_context") or ""
 
-    batch = _run_plan(plan, user_id, user_question, prior_notes)
+    batch = _run_plan(plan, user_id, user_question, prior_notes, pctx, episode_context)
 
     executed = list(state.get("executed", []) or []) + [
         role for role in plan if role in EXPERT_RUNNERS

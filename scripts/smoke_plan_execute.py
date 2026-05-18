@@ -1,8 +1,8 @@
-"""Smoke test for plan-and-execute (Planner + Dispatcher + sequential experts).
+"""Smoke test for plan-and-execute (Planner + Dispatcher + expert batch).
 
-Goal: prove that when the Planner schedules multiple experts in one turn,
-the later expert can see the earlier expert's note via the shared scratchpad
-*within the same turn* (not just across turns).
+Goal: prove that a multi-expert turn routes through Planner/Dispatcher,
+produces scratchpad notes for both experts, reaches Critic, and carries the
+per-turn personalization context built by TurnStart.
 
 Run: python scripts/smoke_plan_execute.py
 """
@@ -64,7 +64,9 @@ def run_turn(thread_id: str, user_id: str, query: str):
                 text = extract_text_content(value["messages"][-1])
                 final_answer = text
                 print(f"   final_msg: {text[:200]}{'...' if len(text) > 200 else ''}")
-    return events, final_answer
+    snapshot = graph.get_state(config)
+    final_state = getattr(snapshot, "values", {}) or {}
+    return events, final_answer, final_state
 
 
 def main():
@@ -74,47 +76,28 @@ def main():
 
     # Multi-expert query — keyword router will pick Trainer + Nutritionist
     # ('练腿' + '吃什么') and Planner sorts them as Trainer -> Nutritionist.
-    events, final = run_turn(
+    events, final, final_state = run_turn(
         thread_id, user_id,
         "我刚练完腿，今晚该吃什么帮助恢复？训练动作上有没有要注意的？",
     )
 
     # ---- Assertions ----
-    dispatch_order = []
-    for node, value in events:
-        if node == "Dispatcher" and value.get("next"):
-            dispatch_order.append(value["next"][0])
-    print("\n--- dispatch order observed ---")
-    print(f"   {dispatch_order}")
-
-    # Filter out internal control-flow tokens; we only care about expert order.
-    expert_order = [d for d in dispatch_order if d != "__REPLAN__"]
-    assert expert_order[:2] == ["Trainer", "Nutritionist"], (
-        f"expected Trainer before Nutritionist in expert order, got {expert_order}"
+    executed = final_state.get("executed") or []
+    assert executed[:2] == ["Trainer", "Nutritionist"], (
+        f"expected Trainer -> Nutritionist, got {executed}"
     )
-
-    # When Nutritionist runs, agent_notes should already contain Trainer's note.
-    # Locate the Nutritionist node event and confirm Trainer note existed at that point.
-    saw_trainer_note_before_nutritionist = False
-    trainer_note_seen = False
-    for node, value in events:
-        if node == "Trainer" and value.get("agent_notes", {}).get("Trainer"):
-            trainer_note_seen = True
-        if node == "Nutritionist" and trainer_note_seen:
-            saw_trainer_note_before_nutritionist = True
-            break
-
-    assert saw_trainer_note_before_nutritionist, (
-        "Nutritionist ran without Trainer's scratchpad note being available first"
-    )
+    notes = final_state.get("agent_notes") or {}
+    assert notes.get("Trainer"), "missing Trainer scratchpad note"
+    assert notes.get("Nutritionist"), "missing Nutritionist scratchpad note"
+    assert final_state.get("personalization_ctx"), "TurnStart did not build personalization_ctx"
 
     critic_verdicts = [v.get("critic_verdict") for _, v in events if v.get("critic_verdict")]
     assert critic_verdicts, "Critic did not run"
 
     assert final, "no final answer"
     print("\n--- assertions passed ---")
-    print(f"   dispatch order: {dispatch_order}")
-    print(f"   trainer note available before nutritionist: {saw_trainer_note_before_nutritionist}")
+    print(f"   executed: {executed}")
+    print(f"   personalization_ctx: {bool(final_state.get('personalization_ctx'))}")
     print(f"   critic verdict: {critic_verdicts[-1]}")
     print(f"   final length: {len(final)}")
     print("\nSMOKE TEST OK")

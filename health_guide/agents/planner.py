@@ -16,9 +16,9 @@ from typing import List, Dict
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..llm import extract_text_content, llm
-from ..profile_store import get_user_profile as _get_profile
+from ..personalization import build_personalization_ctx, profile_routing_digest
 from .fallbacks import default_fresh_plan, empty_replan
-from .query_rewriter import get_user_question, get_user_message_for_planner
+from .query_rewriter import get_user_question
 
 
 # ---- Deterministic routing rules ------------------------------------------
@@ -42,6 +42,11 @@ _FOOD_INTENT = re.compile(
 
 _WELLNESS_INTENT = re.compile(
     r"睡|失眠|入睡|压力|焦虑|抑郁|情绪|疲劳|倦怠|心情|放松|休息|恢复",
+    re.IGNORECASE,
+)
+
+_STYLE_INTENT = re.compile(
+    r"简洁|详细|啰嗦|幽默|正式|口语|英文|中文|回答风格|语气|tone|concise|brief",
     re.IGNORECASE,
 )
 
@@ -119,31 +124,6 @@ _REPLAN_SYSTEM = (
 )
 
 
-def _profile_summary(profile: dict) -> str:
-    """Return a concise routing-relevant summary; empty string if nothing meaningful."""
-    parts = []
-    stats = profile.get("physical_stats") or {}
-    if stats.get("age"):
-        parts.append(f"{stats['age']}岁")
-    if stats.get("weight"):
-        parts.append(f"{stats['weight']}kg")
-    injuries = stats.get("injuries") or []
-    if injuries:
-        parts.append(f"伤病：{'、'.join(str(x) for x in injuries)}")
-    dietary = profile.get("dietary_context") or {}
-    goal = (dietary.get("goal") or "").strip()
-    if goal and goal != "健康":
-        parts.append(f"目标：{goal}")
-    prefs = dietary.get("preferences") or []
-    if prefs:
-        parts.append(f"饮食偏好：{'、'.join(str(x) for x in prefs)}")
-    mental = profile.get("mental_state") or {}
-    stress = mental.get("stress_sources") or []
-    if stress:
-        parts.append(f"压力源：{'、'.join(str(x) for x in stress)}")
-    return "，".join(parts)
-
-
 def _format_responses(responses: Dict[str, str]) -> str:
     if not responses:
         return "（无）"
@@ -188,11 +168,17 @@ def _profile_has_chronic_condition(profile: dict, summary: str) -> bool:
 def _enforce_profile_rules(plan: List[str], profile: dict, profile_summary: str, query: str) -> List[str]:
     """Apply R1/R2/R3 deterministically to recover from LLM misses.
 
-    Looks at the merged ``query + profile_summary`` for domain-intent keywords
-    so injury context referenced only in the profile still triggers Trainer.
+    Domain intent must come from the user's current query. The profile summary
+    supplies risk context only; otherwise a pure style preference like "回答简洁"
+    would be misrouted to Trainer just because the profile contains "增肌/ACL".
     """
-    text = f"{query or ''}\n{profile_summary or ''}"
+    text = query or ""
     plan = list(plan)
+
+    if _STYLE_INTENT.search(text) and not (
+        _TRAINING_INTENT.search(text) or _FOOD_INTENT.search(text) or _WELLNESS_INTENT.search(text)
+    ):
+        return ["General"]
 
     if _profile_has_injury(profile):
         if _TRAINING_INTENT.search(text) and "Trainer" not in plan:
@@ -234,8 +220,11 @@ def _enforce_profile_rules(plan: List[str], profile: dict, profile_summary: str,
 
 def _fresh_plan(state) -> dict:
     user_id = state.get("profile_user_id", "default_user")
-    profile = _get_profile(user_id)
-    summary = _profile_summary(profile)
+    pctx = state.get("personalization_ctx") or {}
+    if not pctx:
+        pctx = build_personalization_ctx(user_id)
+    profile = pctx.get("raw_profile") or {}
+    summary = pctx.get("routing_digest") or profile_routing_digest(profile)
 
     user_question = get_user_question(state)
     episode_ctx = (state.get("episode_context") or "").strip()
@@ -244,7 +233,11 @@ def _fresh_plan(state) -> dict:
     if summary:
         parts.append(f"用户画像：{summary}")
     if episode_ctx:
-        parts.append(f"近期对话记录：\n{episode_ctx}")
+        parts.append(
+            "近期/相关对话记录：\n"
+            f"{episode_ctx}\n"
+            "说明：[最近] 表示按时间最近的对话，[相关] 表示因话题相似而召回的更早对话。"
+        )
     parts.append(f"用户问题：{user_question}")
     routing_content = "\n".join(parts)
 

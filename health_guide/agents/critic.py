@@ -20,14 +20,12 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
 from ..mcp_client import MCP_REGISTRY
-from ..profile_store import (
-    get_user_profile as get_profile_from_store,
-    profile_to_prompt_text,
-)
+from ..personalization import build_personalization_ctx, profile_anchor_terms
 from ..tools import retrieve_safety_guidelines
 from .dispatcher import REPLAN_CAP
 from .fallbacks import add_safety_warning, has_safety_risk
 from .query_rewriter import get_user_question
+from ._scratchpad import extract_facts_from_notes
 
 
 # All experts the Critic can request as replan reinforcement. Kept in sync
@@ -95,8 +93,15 @@ _CRITIC_SYSTEM = """\
 - 跨专家事实性矛盾
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【P3 · 个性化落地缺失（REVISE）】
+若用户画像中存在有意义数据，且本轮用户问题是在索要健康建议/方案/计划/评估，
+草稿全文未自然引用任何画像锚点（年龄、体重、身高、BMI、伤病名、饮食禁忌、压力源、目标等）
+→ REVISE。修订时必须保留安全边界，并在前两句内自然引用至少一个画像锚点；
+若有伤病/过敏/慢病，必须点名并写出限制。纯寒暄、感谢、告别不触发 P3。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 判断克制原则：
-- R0 与 P0/P1/P2 都不触发 → PASS
+- R0 与 P0/P1/P2/P3 都不触发 → PASS
 - 措辞不够漂亮、缺少边角细节 → PASS
 - 优先级：R0 > P0 > P1 > P2。命中 R0 就输出 REPLAN，不要降级到 REVISE。
 - 如系统注入了"安全知识库参考"，请把其中的红线作为硬约束。
@@ -231,10 +236,15 @@ def critic_node(state):
         }
 
     user_id = state.get("profile_user_id", "default_user")
-    try:
-        profile_text = profile_to_prompt_text(get_profile_from_store(user_id))
-    except Exception:
-        profile_text = "（画像不可用）"
+    pctx = state.get("personalization_ctx") or {}
+    if not pctx:
+        try:
+            pctx = build_personalization_ctx(user_id)
+        except Exception:
+            pctx = {}
+    profile_text = pctx.get("raw_profile_json") or "（画像不可用）"
+    user_card = pctx.get("user_card") or "（用户卡片不可用）"
+    anchors = "、".join(profile_anchor_terms(pctx.get("raw_profile") or {})[:20])
 
     notes_text = _format_notes(state.get("agent_notes") or {})
     user_question = get_user_question(state) or "（未获取到原始问题）"
@@ -248,7 +258,9 @@ def critic_node(state):
     can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
 
     review_prompt = (
-        f"用户画像：\n{profile_text}\n\n"
+        f"用户卡片（与专家看到的个性化上下文一致）：\n{user_card}\n\n"
+        f"用户画像原始 JSON（安全审查用）：\n{profile_text}\n\n"
+        f"可用于 P3 个性化校验的画像锚点：{anchors or '（无）'}\n\n"
         f"用户本轮问题：\n{user_question}\n\n"
         f"本轮已派出专家：{', '.join(executed) if executed else '（无）'}\n"
         f"尚未派出但可补叫：{', '.join(unexecuted) if unexecuted else '（无可补叫）'}\n"
@@ -279,6 +291,7 @@ def critic_node(state):
                 query=get_user_question(state) or "",
                 experts=state.get("executed") or [],
                 gist=final_text,
+                facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
             )
         except Exception:
             pass
@@ -328,6 +341,7 @@ def critic_node(state):
             query=get_user_question(state) or "",
             experts=state.get("executed") or [],
             gist=final_text,
+            facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
         )
     except Exception:
         pass

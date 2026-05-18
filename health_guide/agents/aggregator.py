@@ -20,9 +20,13 @@ _SYSTEM_PROMPT = """\
 - 内容有层次：先给整体方向或核心判断，再展开具体建议，最后如有必要点出注意事项
 - 如果各维度建议有重叠，只保留一次，取最完整的表达
 - 如果建议有矛盾，选择更保守、更安全的一方并简要说明原因
+- 必须保留各专家已引用的画像数值，不得为了顺口改写成「根据你的情况」
+- 必须保留所有伤病、过敏、饮食禁忌等硬约束，不得软化或省略
 """
 
 _SYNTHESIS_TEMPLATE = """\
+{user_card}
+
 用户的问题：
 {user_question}
 
@@ -51,6 +55,8 @@ def aggregator_node(state):
         return {"draft_answer": next(iter(relevant.values()))}
 
     user_question = get_user_question(state)
+    pctx = state.get("personalization_ctx") or {}
+    user_card = pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
 
     expert_sections = "\n\n".join(
         f"[{_EXPERT_DOMAIN_LABELS.get(k, k)}]\n{v}"
@@ -58,6 +64,7 @@ def aggregator_node(state):
     )
 
     synthesis_prompt = _SYNTHESIS_TEMPLATE.format(
+        user_card=user_card,
         user_question=user_question or "（未获取到原始问题）",
         expert_sections=expert_sections,
     )

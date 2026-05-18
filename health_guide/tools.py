@@ -97,6 +97,136 @@ def update_user_profile(patch_json: str, user_id: str = ""):
     updated = update_profile_in_store(target_user_id, patch)
     return f"用户画像已更新：{json.dumps(updated, ensure_ascii=False)}"
 
+
+def _target_user_id(user_id: str = "") -> str:
+    return user_id or os.environ.get("HEALTH_GUIDE_USER_ID", "default_user")
+
+
+def _append_unique(items: list, value: str) -> list:
+    value = (value or "").strip()
+    if not value:
+        return items
+    normalized = {str(x).strip() for x in items}
+    if value not in normalized:
+        items.append(value)
+    return items
+
+
+@tool
+def set_physical_stats(
+    age: int = 0,
+    weight_kg: float = 0,
+    height_cm: float = 0,
+    user_id: str = "",
+):
+    """结构化记录年龄、体重(kg)、身高(cm)。未知字段传 0 即可跳过。"""
+    patch = {"physical_stats": {}}
+    if age and age > 0:
+        patch["physical_stats"]["age"] = int(age)
+    if weight_kg and weight_kg > 0:
+        patch["physical_stats"]["weight"] = float(weight_kg)
+    if height_cm and height_cm > 0:
+        patch["physical_stats"]["height"] = float(height_cm)
+    if not patch["physical_stats"]:
+        return "[Profile Update Skip] 未提供有效年龄/体重/身高。"
+    updated = update_profile_in_store(_target_user_id(user_id), patch)
+    return f"身体数据已更新：{json.dumps(updated['physical_stats'], ensure_ascii=False)}"
+
+
+@tool
+def add_injury(injury: str, user_id: str = ""):
+    """结构化记录伤病/术后/康复状态，例如 ACL 术后、半月板损伤。"""
+    injury = (injury or "").strip()
+    if not injury:
+        return "[Profile Update Skip] injury 为空。"
+    target = _target_user_id(user_id)
+    profile = get_profile_from_store(target)
+    stats = profile.get("physical_stats") or {}
+    injuries = list(stats.get("injuries") or [])
+    _append_unique(injuries, injury)
+    updated = update_profile_in_store(target, {"physical_stats": {"injuries": injuries}})
+    return f"伤病记录已更新：{json.dumps(updated['physical_stats'].get('injuries', []), ensure_ascii=False)}"
+
+
+@tool
+def set_dietary_goal(goal: str, user_id: str = ""):
+    """结构化记录饮食/体型目标，例如 增肌、减脂、健康。"""
+    goal = (goal or "").strip()
+    if not goal:
+        return "[Profile Update Skip] goal 为空。"
+    updated = update_profile_in_store(
+        _target_user_id(user_id),
+        {"dietary_context": {"goal": goal}},
+    )
+    return f"饮食目标已更新：{updated.get('dietary_context', {}).get('goal', '')}"
+
+
+@tool
+def add_dietary_preference(preference: str, kind: str = "dislike", user_id: str = ""):
+    """结构化记录饮食偏好。kind 可选 like, dislike, allergy。"""
+    preference = (preference or "").strip()
+    kind = (kind or "dislike").strip().lower()
+    if not preference:
+        return "[Profile Update Skip] preference 为空。"
+    if kind not in {"like", "dislike", "allergy"}:
+        return "[Profile Update Error] kind 必须是 like/dislike/allergy。"
+    prefix = {
+        "like": "喜欢",
+        "dislike": "不喜欢/不吃",
+        "allergy": "过敏",
+    }[kind]
+    value = preference if any(x in preference for x in ("喜欢", "不吃", "过敏", "不耐")) else f"{prefix}：{preference}"
+    target = _target_user_id(user_id)
+    profile = get_profile_from_store(target)
+    dietary = profile.get("dietary_context") or {}
+    prefs = list(dietary.get("preferences") or [])
+    _append_unique(prefs, value)
+    updated = update_profile_in_store(target, {"dietary_context": {"preferences": prefs}})
+    return f"饮食偏好已更新：{json.dumps(updated['dietary_context'].get('preferences', []), ensure_ascii=False)}"
+
+
+@tool
+def add_stress_source(source: str, user_id: str = ""):
+    """结构化记录压力来源，例如 工作加班、论文 deadline、比赛压力。"""
+    source = (source or "").strip()
+    if not source:
+        return "[Profile Update Skip] source 为空。"
+    target = _target_user_id(user_id)
+    profile = get_profile_from_store(target)
+    mental = profile.get("mental_state") or {}
+    sources = list(mental.get("stress_sources") or [])
+    _append_unique(sources, source)
+    updated = update_profile_in_store(target, {"mental_state": {"stress_sources": sources}})
+    return f"压力源已更新：{json.dumps(updated['mental_state'].get('stress_sources', []), ensure_ascii=False)}"
+
+
+@tool
+def set_response_style(
+    tone: str = "",
+    humor: str = "",
+    formality: str = "",
+    language: str = "",
+    user_id: str = "",
+):
+    """结构化记录回答风格偏好，例如 tone=concise, humor=light, formality=casual, language=zh。"""
+    style_patch = {}
+    for key, value in {
+        "tone": tone,
+        "humor": humor,
+        "formality": formality,
+        "language": language,
+    }.items():
+        value = (value or "").strip()
+        if value:
+            style_patch[key] = value
+    if not style_patch:
+        return "[Profile Update Skip] 未提供有效风格字段。"
+    updated = update_profile_in_store(
+        _target_user_id(user_id),
+        {"response_style": style_patch},
+    )
+    return f"回答风格已更新：{json.dumps(updated.get('response_style', {}), ensure_ascii=False)}"
+
 # 2. 定义 TDEE 计算工具
 @tool
 def calculate_tdee(weight_kg: float, height_cm: float, age: int, activity_level: str = "sedentary"):
@@ -122,4 +252,10 @@ tools = [
     calculate_tdee,
     get_user_profile,
     update_user_profile,
+    set_physical_stats,
+    add_injury,
+    set_dietary_goal,
+    add_dietary_preference,
+    add_stress_source,
+    set_response_style,
 ]

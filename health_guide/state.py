@@ -38,6 +38,10 @@ def _take_last_str(a: str, b: str) -> str:
     return b
 
 
+def _take_last_dict(a: Dict, b: Dict) -> Dict:
+    return b or {}
+
+
 class AgentState(TypedDict, total=False):
     # add_messages dedupes by id and honors RemoveMessage — required by TurnStart
     # when it summarizes / drops old messages from long sessions.
@@ -73,3 +77,5 @@ class AgentState(TypedDict, total=False):
     history_summary: Annotated[str, _take_last_str]
     # 跨 thread 情节记忆（TurnStart 从 episode_store 读取，供 Planner 路由参考）
     episode_context: Annotated[str, _take_last_str]
+    # 本轮统一个性化快照（TurnStart 构建，Planner/Experts/Aggregator/Critic 只读 state）
+    personalization_ctx: Annotated[Dict, _take_last_dict]

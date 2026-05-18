@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 _ = load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_TRUTHY = {"1", "true", "yes"}
 
 # OpenAI 兼容 LLM 配置（所有节点共用一个最强模型；详见 .env.example）
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
@@ -33,6 +34,12 @@ DEFAULT_USER_PROFILE = {
   "mental_state": {
     "stress_sources": [], # [示例] ["论文Deadline", "工作压力"]
     "relaxation_preference": "" # [示例] "打游戏" 或 "看电影"
+  },
+  "response_style": {
+    "tone": "",      # [示例] "concise" / "warm" / "direct"
+    "humor": "",     # [示例] "light" / "none"
+    "formality": "", # [示例] "casual" / "formal"
+    "language": ""   # [示例] "zh" / "en"
   }
 }
 
@@ -41,6 +48,15 @@ PROFILE_STORE_PATH = os.environ.get("PROFILE_STORE_PATH", "profile_store.json")
 
 # 情节记忆存储文件（每用户最近 N 轮对话摘要，跨 thread 持久化）
 EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
+EPISODE_SEMANTIC_RETRIEVAL_ENABLED = (
+  os.environ.get("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", "true").lower() in _TRUTHY
+)
+EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "8"))
+EPISODE_SEMANTIC_TOP_K = int(os.environ.get("EPISODE_SEMANTIC_TOP_K", "3"))
+EPISODE_INDEX_DIR = os.environ.get(
+  "EPISODE_INDEX_DIR",
+  str(Path.home() / ".health_guide_indices" / "episodes"),
+)
 
 # 本地知识库目录
 KNOWLEDGE_BASE_DIR = os.environ.get("KNOWLEDGE_BASE_DIR", "knowledge_base")
@@ -90,7 +106,6 @@ RAG_RERANK_BATCH_SIZE = int(os.environ.get("RAG_RERANK_BATCH_SIZE", "16"))
 
 # === 社区 MCP 工具服务器（可选）===
 # 三个开关默认全 false，老用户拉新版无感升级；显式 opt-in 才会 spawn 子进程。
-_TRUTHY = {"1", "true", "yes"}
 MCP_TRAINER_ENABLED = (
     os.environ.get("MCP_TRAINER_ENABLED", "false").lower() in _TRUTHY
 )
