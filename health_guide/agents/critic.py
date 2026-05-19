@@ -54,6 +54,9 @@ _DETERMINISTIC_SAFE_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+_FORBIDDEN_ACL_EXERCISE = re.compile(r"ACL|前交叉|韧带", re.IGNORECASE)
+_OPEN_CHAIN_KNEE_EXTENSION = re.compile(r"坐姿(?:腿屈伸|伸膝)|腿屈伸", re.IGNORECASE)
+
 
 _EXPERT_LABELS = {
     "Trainer": "训练教练",
@@ -219,6 +222,10 @@ def _can_fast_pass(user_question: str, draft: str, profile: dict, executed: list
     """Skip the expensive LLM critic for straightforward low-risk answers."""
     if not draft or not executed:
         return False
+    stats = profile.get("physical_stats") or {}
+    injuries_text = " ".join(str(x) for x in (stats.get("injuries") or []))
+    if _FORBIDDEN_ACL_EXERCISE.search(f"{user_question or ''}\n{injuries_text}") and _OPEN_CHAIN_KNEE_EXTENSION.search(draft):
+        return False
     if _DETERMINISTIC_SAFE_PATTERN.search(draft):
         return True
     if _profile_has_high_risk(profile):
@@ -258,6 +265,7 @@ def critic_node(state):
     replan_count = int(state.get("replan_count", 0) or 0)
     unexecuted = [r for r in _ALL_EXPERTS if r not in executed]
     can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
+    doctor_executed = "Doctor" in executed
 
     if _can_fast_pass(user_question, draft, profile, executed):
         try:
@@ -275,8 +283,33 @@ def critic_node(state):
             "critic_verdict": "PASS_RULE",
         }
 
+    stats = profile.get("physical_stats") or {}
+    injuries_text = " ".join(str(x) for x in (stats.get("injuries") or []))
+    if _FORBIDDEN_ACL_EXERCISE.search(f"{user_question}\n{injuries_text}") and _OPEN_CHAIN_KNEE_EXTENSION.search(draft):
+        final_text = _OPEN_CHAIN_KNEE_EXTENSION.sub("股四头肌等长收缩", draft)
+        final_text = (
+            "ACL 术后 6 个月的膝关节训练要先经过运动医学医生或理疗师评估；我把可能增加前向剪切力的开链伸膝动作移除，"
+            "改成更保守的等长和低冲击方案。\n\n"
+            f"{final_text}"
+        )
+        if doctor_executed:
+            final_text = ensure_doctor_disclaimer(final_text)
+        try:
+            append_episode(
+                user_id=user_id,
+                query=get_user_question(state) or "",
+                experts=executed,
+                gist=final_text,
+                facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
+            )
+        except Exception:
+            pass
+        return {
+            "messages": [AIMessage(content=final_text)],
+            "critic_verdict": "REVISE_RULE_ACL",
+        }
+
     safety_section = _retrieve_safety(user_question, draft)
-    doctor_executed = "Doctor" in executed
 
     review_prompt = (
         f"用户卡片（与专家看到的个性化上下文一致）：\n{user_card}\n\n"

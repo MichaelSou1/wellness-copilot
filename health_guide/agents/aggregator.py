@@ -1,6 +1,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 import re
 
+from ..personalization import apply_personalization_boost
 from ..llm import extract_text_content, llm
 from .doctor import ensure_doctor_disclaimer
 from .fallbacks import aggregate_fallback
@@ -105,8 +106,10 @@ def _ensure_final_anchors(answer: str, pctx: dict, user_question: str) -> str:
             prefix.append("赛前焦虑很常见，目标是通过减量、呼吸放松和固定作息把兴奋度压到可控范围。")
 
     if not prefix:
-        return answer
-    return "\n\n".join(prefix + [answer])
+        merged = answer
+    else:
+        merged = "\n\n".join(prefix + [answer])
+    return apply_personalization_boost(merged, pctx, user_question, max_notes=3)
 
 
 def aggregator_node(state):

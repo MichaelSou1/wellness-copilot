@@ -16,7 +16,7 @@ from langchain_core.tools import tool
 
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx
+from ..personalization import apply_personalization_boost, build_personalization_ctx
 from ..profile_store import update_user_profile as store_update_user_profile
 from ..tools import (
     add_dietary_preference,
@@ -89,6 +89,12 @@ _EXERCISE_DISCOMFORT_SIGNAL = re.compile(
 
 _EXERCISE_CONTEXT_SIGNAL = re.compile(
     r"运动|训练|跑步|健身|锻炼|练腿|练胸|练背|力量|有氧|HIIT|肌肉|DOMS|比赛|跑量",
+    re.IGNORECASE,
+)
+
+_PSYCH_CRISIS_SIGNAL = re.compile(
+    r"活着没意思|不想活|轻生|自杀|自伤|结束生命|不想跟任何人说|不想和任何人说|"
+    r"没有活下去|想死|消失算了",
     re.IGNORECASE,
 )
 
@@ -335,7 +341,22 @@ def _simple_direct_answer(state, user_question: str, pctx: dict) -> dict | None:
     if re.search(r"你叫什么名字|你是谁|名字", text):
         answer = "我是 Health Guide，你的健康管理助手，可以帮你拆解训练、饮食、睡眠、压力和康复相关问题。"
     elif re.search(r"天气.*好|今天天气|阳光|外面.*好", text):
-        answer = "是啊，天气好很适合做一点低门槛活动：出门轻松走 20-30 分钟，或者晒晒太阳、做 5 分钟拉伸就很好。"
+        profile = pctx.get("raw_profile") or {}
+        stats = profile.get("physical_stats") or {}
+        age = stats.get("age")
+        weight = stats.get("weight")
+        goal = (profile.get("dietary_context") or {}).get("goal")
+        anchor = ""
+        if age or weight or goal:
+            bits = []
+            if age:
+                bits.append(f"{int(age)}岁")
+            if weight:
+                bits.append(f"{int(weight) if float(weight).is_integer() else weight}kg")
+            if goal and goal != "健康":
+                bits.append(f"目标{goal}")
+            anchor = f"按你目前{ '、'.join(bits) }，"
+        answer = f"是啊，天气好很适合做一点低门槛活动：{anchor}出门轻松走 20-30 分钟，或者晒晒太阳、做 5 分钟拉伸就很好。"
     if not answer:
         return None
     return _direct_state(state.get("profile_user_id", "default_user"), text, answer)
@@ -458,6 +479,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         if _should_answer_medical_boundary_direct(user_question):
             _call_child_agent("Doctor", child_ctx)
             answer = child_ctx.expert_responses.get("Doctor") or _medical_boundary_answer(user_question, pctx)
+            answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
             answer = ensure_doctor_disclaimer(answer)
             return _direct_state(
                 user_id,
@@ -483,6 +505,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         used_tools.extend(child_ctx.last_tools)
 
         answer = extract_text_content(result["messages"][-1])
+        answer = apply_personalization_boost(answer, pctx, user_question, max_notes=3)
         if _doctor_used(child_ctx.executed, used_tools):
             answer = ensure_doctor_disclaimer(answer)
         retrieval_hits = child_ctx.retrieval_hits
@@ -521,6 +544,29 @@ def _run_parent_agent(state) -> dict:
 
     if _should_answer_medical_boundary_direct(user_question):
         return _direct_answer(state)
+
+    if _PSYCH_CRISIS_SIGNAL.search(user_question or ""):
+        child_ctx = _ChildCallContext(
+            user_id,
+            user_question,
+            pctx,
+            episode_context,
+            prior_agent_notes=dict(state.get("agent_notes") or {}),
+        )
+        _call_child_agent("Psychologist", child_ctx)
+        return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": [_ROLE_TOOL_NAMES["Psychologist"], *child_ctx.last_tools],
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
+        }
 
     physical_roles = _physical_discomfort_roles(user_question)
     if physical_roles:
@@ -595,6 +641,7 @@ def _run_parent_agent(state) -> dict:
                     parent_tools.append(call.get("name", "Unknown"))
 
         answer = extract_text_content(result["messages"][-1])
+        answer = apply_personalization_boost(answer, pctx, user_question, max_notes=3)
         all_tools = parent_tools + child_ctx.last_tools
         if _doctor_used(child_ctx.executed, parent_tools):
             answer = ensure_doctor_disclaimer(answer)
@@ -615,6 +662,7 @@ def _run_parent_agent(state) -> dict:
                 "orchestrator_decision": "CALLED_CHILD",
             }
 
+        answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
         _record_episode(user_id, user_question, answer, ["Orchestrator"])
         return {
             "messages": [AIMessage(content=answer)],

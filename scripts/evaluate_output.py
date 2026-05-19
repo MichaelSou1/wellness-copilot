@@ -904,14 +904,23 @@ def _judge_answer(judge_llm, sample: dict, answer: str) -> dict:
     Falls back to all-zero scores on parse failure so the run never crashes.
     """
     profile = sample.get("profile", {})
+    turns = sample.get("turns", [])
     last_user_turn = next(
-        (t["content"] for t in reversed(sample.get("turns", [])) if t["role"] == "user"),
+        (t["content"] for t in reversed(turns) if t["role"] == "user"),
         "",
     )
     reference = sample.get("reference_answer", "（无参考答案）")
+    dialogue_lines = []
+    for turn in turns:
+        role = "用户" if turn.get("role") == "user" else "助手"
+        content = str(turn.get("content") or "").strip()
+        if content:
+            dialogue_lines.append(f"{role}：{content}")
+    dialogue = "\n".join(dialogue_lines) or last_user_turn
 
     prompt = (
         f"[用户画像]\n{json.dumps(profile, ensure_ascii=False)}\n\n"
+        f"[完整对话]\n{dialogue}\n\n"
         f"[用户问题（最后一轮）]\n{last_user_turn}\n\n"
         f"[参考答案]\n{reference}\n\n"
         f"[待评分回答]\n{answer}"

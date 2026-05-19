@@ -91,11 +91,51 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
     weight = _num(stats.get("weight"))
     anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(weight, "kg") if weight else "", _fmt(stats.get("height"), "cm")) if x]
     goal = str(dietary.get("goal") or "").strip()
+    prefs = [str(x).strip() for x in (dietary.get("preferences") or []) if str(x).strip()]
+    pref_text = " ".join(prefs)
     anchor_text = f"以你目前 {', '.join(anchors)}" + (f"、目标{goal}" if goal and goal != "健康" else "") + "来看，" if anchors else ""
 
-    if re.search(r"肌酸|creatine", q, re.IGNORECASE):
+    if re.search(r"花生.*过敏|过敏.*花生", q + " " + pref_text) and re.search(r"零食|高蛋白|加餐|推荐", q):
+        protein_line = ""
+        if weight:
+            protein_line = (
+                f"按 {weight:g}kg 增肌目标估算，全天蛋白质可放在 {round(weight * 1.6)}-{round(weight * 2.2)}g，"
+                f"加餐每次补 15-25g 蛋白质即可。"
+            )
         return (
-            f"{anchor_text}肌酸值得考虑，尤其适合增肌和力量训练。优先选一水肌酸，每天 3-5克，随餐或训练后服用都可以，"
+            f"{anchor_text}你前面明确提到花生过敏，所以高蛋白零食要先看配料表和过敏原提示，"
+            f"避开花生、花生粉、花生酱、花生油以及标注可能含花生/共线生产的产品。{protein_line}\n\n"
+            "更稳的选择：\n"
+            "- 希腊酸奶/高蛋白酸奶：每份约 15-20g 蛋白质，选无花生成分版本。\n"
+            "- 奶酪棒、茅屋奶酪或无糖豆浆：每份约 8-20g 蛋白质。\n"
+            "- 即食鸡胸肉、金枪鱼罐头、牛肉干：优先选配料简单且无花生油/坚果混入的产品。\n"
+            "- 煮鸡蛋、卤蛋、豆腐干、毛豆：适合做日常加餐。\n"
+            "- 蛋白棒/蛋白粉：只选明确标注不含花生且过敏原信息清楚的品牌。\n\n"
+            "先不要买散装混合坚果或来路不明的能量球，这类交叉污染风险更高。"
+        )
+
+    if re.search(r"素食|纯素|不吃肉", q + " " + pref_text) and re.search(r"增肌|晚餐|训练日|蛋白", q):
+        if weight:
+            daily_low = round(weight * 1.6)
+            daily_high = round(weight * 2.2)
+        else:
+            daily_low = daily_high = 0
+        daily_text = f"按 {weight:g}kg 计算，全天蛋白质约 {daily_low}-{daily_high}g，" if weight else "体重未明确时先按每餐蛋白质目标倒推，"
+        return (
+            f"{anchor_text}{daily_text}训练日晚餐建议做到 25-35g 蛋白质、充足碳水和容易消化。\n\n"
+            "一份可执行搭配：熟米饭/藜麦 150-200g + 北豆腐/豆干 200g 或天贝 120-150g + 毛豆/鹰嘴豆 80-100g + "
+            "深色蔬菜 200g，再加橄榄油/坚果 10-15g。这样既有大豆蛋白，也有训练后补糖原的主食。\n\n"
+            "素食增肌还要盯住微量营养素：B12 通常需要强化食品或补剂来源；铁可来自豆类、深绿叶菜并搭配维 C；"
+            "锌可来自全谷物、豆类、坚果种子；Omega-3 可用亚麻籽/奇亚籽/核桃，必要时考虑藻油 DHA/EPA。"
+            "如果训练后胃口小，可以再加一份植物蛋白粉 20-25g 蛋白配香蕉。"
+        )
+
+    if re.search(r"肌酸|creatine", q, re.IGNORECASE):
+        dose = "3-5克/天"
+        if weight:
+            dose = f"3-5克/天即可；按 {weight:g}kg 来看不需要为了体重额外加到很高剂量"
+        return (
+            f"{anchor_text}肌酸值得考虑，尤其适合增肌和力量训练。优先选一水肌酸，每天 {dose}，随餐或训练后服用都可以，"
             "通常不需要冲击期。\n\n"
             "注意每天保持足量饮水；如果有肾病、正在用药、孕哺期或体检肾功能异常，先问医生/药师。"
             "它不是立刻见效的兴奋剂，一般连续 2-4 周配合渐进力量训练更容易看到力量和训练容量变化。"
@@ -129,6 +169,20 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
         )
 
     if weight and re.search(r"减脂|每日饮食|饮食方案|减脂餐", q):
+        height = _num(stats.get("height"))
+        if height:
+            bmi = round(weight / ((height / 100) ** 2), 1)
+            target = re.search(r"(?:减到|瘦到|降到)\s*(\d+(?:\.\d+)?)\s*kg", q, re.IGNORECASE)
+            target_weight = _num(target.group(1)) if target else None
+            target_bmi = round(target_weight / ((height / 100) ** 2), 1) if target_weight else None
+            if bmi < 18.5 or (target_bmi and target_bmi < 18.5):
+                target_note = f"；减到 {target_weight:g}kg 时 BMI 约 {target_bmi}" if target_weight and target_bmi else ""
+                return (
+                    f"{anchor_text}你当前 BMI 约 {bmi}，已经偏低{target_note}，不建议再降体重，也不能支持把目标设为更低体重。\n\n"
+                    "饮食目标应改成体重维持和营养修复：规律三餐，每餐有主食、蛋白质和脂肪，不做 300-500 kcal 热量赤字。"
+                    f"蛋白质可按 {weight:g}kg 估算约 {round(weight * 1.2)}-{round(weight * 1.6)}g/天，帮助维持肌肉和基础代谢。"
+                    "如果强烈害怕体重上升或进食后内疚，建议尽快找临床营养师和心理咨询/精神心理科做进食问题评估。"
+                )
         low = round(weight * 1.6)
         high = round(weight * 2.0)
         kcal_note = "热量赤字先控制在 300-500 kcal/天"
@@ -154,6 +208,18 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
             "如果天气热、出汗多或预计用时超过 60 分钟，可以在 5km 后安排一次水、电解质或能量胶补给；"
             "所有补给都要在训练日提前试过，比赛当天不要尝试新食物。"
         )
+
+    if re.search(r"水|饮水|补水|出汗|电解质", q):
+        if weight:
+            low_l = weight * 30 / 1000
+            high_l = weight * 40 / 1000
+            return (
+                f"{anchor_text}按 {weight:g}kg 估算，基础饮水可先放在 {low_l:.1f}-{high_l:.1f}L/天；"
+                "如果训练出汗很多，再把运动补水叠加进去。\n\n"
+                "训练前 2 小时喝 400-600ml；训练中每 15-20 分钟小口喝 150-250ml；"
+                "训练后称体重，每少 1kg 补 1.2-1.5L。超过 60 分钟、天气热、衣服湿透或有抽筋/头晕时，"
+                "可以补电解质，重点看钠和总体液体，不要一次性猛灌水。"
+            )
 
     return ""
 

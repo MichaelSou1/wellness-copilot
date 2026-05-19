@@ -86,23 +86,56 @@ def _medical_profile_intro(pctx: dict, user_question: str, answer: str) -> str:
 
 def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
     q = user_question or ""
+    profile = pctx.get("raw_profile") or {}
+    stats = profile.get("physical_stats") or {}
+    age = stats.get("age")
+    weight = stats.get("weight")
+    height = stats.get("height")
+    anchors = []
+    for value, suffix in ((age, "岁"), (weight, "kg"), (height, "cm")):
+        try:
+            n = float(value or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 0:
+            anchors.append(f"{int(n) if n.is_integer() else round(n, 1)}{suffix}")
+    anchor_text = f"结合你目前 {', '.join(anchors)}，" if anchors else ""
+
+    if re.search(r"血压.*(?:大重量|深蹲|增肌|力量)|(?:大重量|深蹲|增肌|力量).*血压", q, re.IGNORECASE):
+        return ensure_doctor_disclaimer(
+            f"{anchor_text}血压控制不稳定时，不建议直接做大重量深蹲增肌。"
+            "大重量深蹲常伴随憋气和瞬间血压升高，可能增加心脑血管风险；在血压稳定并获得医生评估前，先避免 1RM、低次数大重量、力竭组和长时间憋气。\n\n"
+            "更稳妥的做法是先去心内科/全科确认血压控制目标和运动许可；训练上暂时选择低到中等负荷、可顺畅呼吸的动作，"
+            "强度控制在 RPE 5-6，每组保留 3-4 次余力，组间休息 2-3 分钟，并记录训练前后血压。"
+            "如果训练中出现胸闷、胸痛、头晕、心悸或血压明显升高，应立即停止并就医。"
+        )
+
+    if re.search(r"尿色.*浓茶|浓茶.*尿|茶色尿|酱油色尿|尿.*茶", q, re.IGNORECASE):
+        return ensure_doctor_disclaimer(
+            f"{anchor_text}高强度训练后全身肌肉明显疼痛并出现浓茶样尿，不应当按普通酸痛处理，"
+            "需要警惕横纹肌溶解及肾损伤风险。请现在先停止训练，尽快去急诊或医院评估。\n\n"
+            "就诊时建议说明昨天训练内容、持续时间、补水情况和尿色变化；常见需要检查尿常规、肌酸激酶 CK、肌酐/肾功能、电解质等。"
+            "在医生排除风险前，不要继续运动、不要饮酒，也不要自行叠加止痛药。"
+        )
+
     if _DIAGNOSIS_OR_PRESCRIPTION.search(q):
         if re.search(r"处方|开药|开一张|剂量|吃多少药|服药量", q):
             return ensure_doctor_disclaimer(
-                "我不能开处方，也不能替医生决定具体药物或剂量。请尽快找医生、全科门诊或相应专科做面诊，"
+                f"{anchor_text}我不能开处方，也不能替医生决定具体药物或剂量。请尽快找医生、全科门诊或相应专科做面诊，"
                 "由医生结合症状、查体、既往病史、用药禁忌和必要检查来判断。\n\n"
                 "在获得专业意见前，不要自行加量、延长疗程或把止痛药当作继续训练的许可；"
                 "若出现胸痛胸闷、呼吸困难、黑便、明显过敏反应、麻木无力或疼痛快速加重，请及时就医。"
             )
         if _MEDICATION_NAME.search(q):
             return ensure_doctor_disclaimer(
-                "我不能仅凭这段描述判断某种药是否适合你，也不能替医生或药师做个体化用药决定。"
-                "用药前需要结合年龄、症状原因、既往病史、过敏史、肝肾功能、正在服用的其他药物以及说明书禁忌来判断。\n\n"
-                "在没有专业意见前，不要自行叠加同类止痛药、延长疗程或用抗生素；"
-                "如果症状持续、加重，或出现胸闷、呼吸困难、皮疹/面唇肿胀、黑便、明显胃痛等情况，请及时就医或咨询药师。"
+                f"{anchor_text}我不能仅凭这段描述判断布洛芬是否还能继续用，也不能替医生或药师决定剂量、加量或延长疗程。"
+                "连续使用 5 天后仍有腰痛，建议尽快咨询医生/药师或骨科、康复科评估疼痛原因和用药安全。\n\n"
+                "布洛芬这类药需要考虑胃肠道出血、肾功能、血压/心血管风险、过敏史以及是否和其他药物叠加。"
+                "在没有专业意见前，不要自行继续用药、加量、叠加同类止痛药或把止痛药当作继续训练的许可；"
+                "若出现黑便、明显胃痛、胸闷、呼吸困难、皮疹/面唇肿胀、下肢麻木无力或大小便异常，请及时就医。"
             )
         return ensure_doctor_disclaimer(
-            "我不能根据文字判断你“是什么病”，也不能做诊断。持续或反复的疼痛/不适需要医生查体，"
+            f"{anchor_text}我不能根据文字判断你“是什么病”，也不能做诊断。持续或反复的疼痛/不适需要医生查体，"
             "必要时结合影像、心电图或实验室检查来明确。\n\n"
             "在明确原因前，先暂停剧烈运动和会诱发症状的动作，不要自行按某个诊断用药。"
             "如果伴随胸痛胸闷、呼吸困难、发热、晕厥、疼痛快速加重或神经症状，请优先急诊。"
@@ -110,7 +143,7 @@ def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
 
     if _EXERCISE_SYMPTOM_SIGNAL.search(q):
         return ensure_doctor_disclaimer(
-            "你描述的是运动/健身后出现身体不适，尤其伴有头晕，不能只按普通训练酸痛处理。"
+            f"{anchor_text}你描述的是运动/健身后出现身体不适，尤其伴有头晕，不能只按普通训练酸痛处理。"
             "建议先停止高强度训练和继续加量，今天以休息、补水、正常进食和观察症状为主；"
             "如果头晕持续、反复出现，或伴随胸闷胸痛、呼吸困难、心悸、明显乏力、呕吐、晕厥、肌肉肿胀明显、尿色像浓茶，"
             "请尽快就医或急诊评估。\n\n"
@@ -120,7 +153,7 @@ def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
 
     if _URGENT_SIGNAL.search(q):
         return ensure_doctor_disclaimer(
-            "这个描述里有需要谨慎处理的身体症状，建议先做医生评估，不要只按训练疲劳或普通不适处理。"
+            f"{anchor_text}这个描述里有需要谨慎处理的身体症状，建议先做医生评估，不要只按训练疲劳或普通不适处理。"
             "如果症状正在发生、反复出现或影响日常活动，请尽快去全科/急诊/相应专科；"
             "若有胸痛胸闷、呼吸困难、晕厥、明显心率异常、神经症状或疼痛快速加重，应优先急诊。\n\n"
             "等待就医前，先停止高强度训练、饮酒和自行叠加用药，记录症状出现时间、诱因、持续多久、伴随症状和已服药物，方便医生判断。"
