@@ -19,7 +19,11 @@ from typing import Any, Iterable
 _DETAIL: bool = False
 
 _ROLE_DISPLAY_NAMES = {
+    "Analyst": "数据分析师",
+    "Trainer": "训练教练",
+    "Nutritionist": "营养师",
     "Psychologist": "心理疗愈师",
+    "Doctor": "医学顾问",
 }
 
 

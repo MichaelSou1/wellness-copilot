@@ -17,11 +17,15 @@ from ..mcp_client import MCP_REGISTRY
 from ..tools import (
     add_injury,
     calculate_tdee,
+    log_workout,
+    push_reminder,
+    query_logs,
     retrieve_trainer_knowledge,
     set_dietary_goal,
     set_physical_stats,
     update_user_profile,
 )
+from ..integrations.local_logs import extract_actuation_events
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..personalization import (
@@ -41,6 +45,9 @@ _TRAINER_TOOLS = [
     set_dietary_goal,
     update_user_profile,
     retrieve_trainer_knowledge,
+    log_workout,
+    query_logs,
+    push_reminder,
 ]
 
 
@@ -392,6 +399,8 @@ def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str 
         "对动作安全与伤病风险进行约束。"
         "如果用户提供了新的身体信息，请优先调用 set_physical_stats / add_injury / set_dietary_goal 做结构化更新；"
         "update_user_profile 仅作兼容兜底。"
+        "如果用户要求安排、记录或完成训练，请调用 log_workout 写入本地训练日志；"
+        "如果用户要求训练提醒，请调用 push_reminder；需要复盘近期训练时，先调用 query_logs(kind='workout')。"
         "【工具使用】当用户询问 TDEE、BMR、基础代谢、每日热量消耗或减脂/增肌热量起点时，"
         "若画像已有体重、身高、年龄，必须调用 calculate_tdee；回答中写明这是估算值，并给出活动系数/目标热量调整建议。"
         "若用户没有说明活动水平，不要只给默认久坐值；应说明活动水平未知，并给出久坐/中等活动/高活动量至少 2 个场景的 TDEE 估算或请用户补充活动量。"
@@ -462,6 +471,7 @@ def run_trainer(
             "agent_notes": {"Trainer": build_scratchpad_note("Trainer", answer)},
             "last_tools": used_tools,
             "retrieval_hits": retrieval_hits,
+            "actuation_log": extract_actuation_events(result["messages"]),
         }
     except Exception as e:
         return expert_error_update("Trainer", e)

@@ -1,17 +1,24 @@
 """Nutritionist expert — invoked as a callable by the Dispatcher."""
 import os
 import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
+from ..config import DEFAULT_TIMEZONE
 from ..mcp_client import MCP_REGISTRY
 from ..tools import (
     add_dietary_preference,
+    log_meal,
+    push_reminder,
+    query_logs,
     retrieve_nutritionist_knowledge,
     set_dietary_goal,
     set_physical_stats,
     update_user_profile,
 )
+from ..integrations.local_logs import extract_actuation_events
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..personalization import (
@@ -30,6 +37,9 @@ _NUTRITIONIST_TOOLS = [
     add_dietary_preference,
     update_user_profile,
     retrieve_nutritionist_knowledge,
+    log_meal,
+    query_logs,
+    push_reminder,
 ]
 
 
@@ -46,6 +56,54 @@ def _fmt(value, suffix=""):
     if n is None:
         return ""
     return f"{int(n) if n.is_integer() else round(n, 1)}{suffix}"
+
+
+def _parse_simple_remind_time(text: str) -> str:
+    q = text or ""
+    match = re.search(r"(今天|明天|今晚|明晚)?\s*(早上|上午|中午|下午|晚上|晚)?\s*(\d{1,2})(?:[:：点]\s*(\d{1,2}))?", q)
+    if not match:
+        return ""
+    day_token, period, hour_s, minute_s = match.groups()
+    hour = int(hour_s)
+    minute = int(minute_s or 0)
+    if period in {"下午", "晚上", "晚"} or day_token in {"今晚", "明晚"}:
+        if hour < 12:
+            hour += 12
+    elif period == "中午" and hour < 11:
+        hour += 12
+    elif period in {"早上", "上午"} and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return ""
+    now = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
+    dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if day_token in {"明天", "明晚"} or dt <= now:
+        dt += timedelta(days=1)
+    return dt.isoformat()
+
+
+def _deterministic_nutrition_reminder(user_id: str, user_question: str):
+    q = user_question or ""
+    if "提醒" not in q or "蛋白" not in q:
+        return None
+    remind_at = _parse_simple_remind_time(q)
+    if not remind_at:
+        return None
+    amount = re.search(r"(\d+(?:\.\d+)?)\s*(?:g|克)?\s*蛋白", q, re.IGNORECASE)
+    amount_text = f"{amount.group(1)}g" if amount else "适量"
+    reminder_text = f"该补 {amount_text} 蛋白了。"
+    raw = push_reminder.invoke(
+        {
+            "remind_at_iso": remind_at,
+            "text": reminder_text,
+            "user_id": user_id,
+            "idempotency_key": f"protein-reminder:{user_id}:{remind_at}:{amount_text}",
+        }
+    )
+    events = extract_actuation_events([ToolMessage(content=raw, tool_call_id="deterministic_push_reminder")])
+    if events and events[-1].get("ok"):
+        return f"已设置提醒：{remind_at} 提醒你补 {amount_text} 蛋白。", events
+    return f"我没能创建提醒；请确认提醒时间是否是明确的 ISO 或日常时间表达。{raw}", events
 
 
 def _profile(pctx: dict) -> dict:
@@ -98,6 +156,17 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
     prefs = [str(x).strip() for x in (dietary.get("preferences") or []) if str(x).strip()]
     pref_text = " ".join(prefs)
     anchor_text = f"以你目前 {', '.join(anchors)}" + (f"、目标{goal}" if goal and goal != "健康" else "") + "来看，" if anchors else ""
+
+    if re.search(r"乳糖不耐|乳糖不耐受|乳糖", pref_text) and re.search(r"训练后|运动后|蛋白|乳清|牛奶", q):
+        low = round(weight * 1.6) if weight else 0
+        high = round(weight * 2.2) if weight else 0
+        daily = f"按 {weight:g}kg 估算，全天蛋白质约 {low}-{high}g；" if weight else ""
+        return (
+            f"{anchor_text}你记录里有乳糖不耐，训练后补蛋白要避开普通牛奶和乳糖较高的奶制品。"
+            f"{daily}训练后这一餐先补 20-40g 蛋白质，再配一份易消化碳水。\n\n"
+            "更稳的选择是：分离乳清或乳糖分解牛奶、无糖豆浆、豌豆/大豆蛋白粉、鸡蛋、鱼虾、鸡胸肉、豆腐或豆干。"
+            "如果用蛋白粉，先从小剂量试耐受；出现腹胀腹泻就换成植物蛋白或完整食物。"
+        )
 
     if re.search(r"(?:只吃|每天).*?\d{3,4}\s*kcal|800\s*kcal|极低热量|低热量.*快速|快速减(?:肥|脂)", q, re.IGNORECASE):
         protein_line = ""
@@ -295,6 +364,9 @@ def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context:
         "若检索结果明确返回 '未命中本地知识库'，可凭通用营养知识给出保守兜底建议。"
         "如果用户补充了体重、口味偏好、过敏/禁忌或目标变化，请优先调用 set_physical_stats / "
         "set_dietary_goal / add_dietary_preference 做结构化更新；update_user_profile 仅作兼容兜底。"
+        "如果用户要求记录餐食、或本轮上下文提供了视觉识别出的餐食数据且用户在询问这餐/这顿，"
+        "请调用 log_meal 写入本地日志；如果用户要求稍后提醒补蛋白/喝水/加餐，请调用 push_reminder。"
+        "需要复盘最近饮食时，先调用 query_logs(kind='meal') 读取真实日志。"
         "输出请给出清晰饮食方案（热量、三大营养素、可替代食材）。"
         "【补剂建议边界】当用户询问常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）"
         "是否值得买、怎么吃、怎么服用时，必须先调用 retrieve_nutritionist_knowledge；"
@@ -327,6 +399,17 @@ def run_nutritionist(
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
         print_expert_start("Nutritionist", user_question)
         pctx = pctx or build_personalization_ctx(user_id)
+        reminder = _deterministic_nutrition_reminder(user_id, user_question)
+        if reminder:
+            answer, events = reminder
+            print_expert_end("Nutritionist", ["push_reminder"], answer)
+            return {
+                "expert_responses": {"Nutritionist": answer},
+                "agent_notes": {"Nutritionist": build_scratchpad_note("Nutritionist", answer)},
+                "last_tools": ["push_reminder"],
+                "retrieval_hits": 0,
+                "actuation_log": events,
+            }
         deterministic = _deterministic_nutrition_answer(pctx, user_question)
         if deterministic:
             print_expert_end("Nutritionist", [], deterministic)
@@ -363,6 +446,7 @@ def run_nutritionist(
             "agent_notes": {"Nutritionist": build_scratchpad_note("Nutritionist", answer)},
             "last_tools": used_tools,
             "retrieval_hits": retrieval_hits,
+            "actuation_log": extract_actuation_events(result["messages"]),
         }
     except Exception as e:
         return expert_error_update("Nutritionist", e)

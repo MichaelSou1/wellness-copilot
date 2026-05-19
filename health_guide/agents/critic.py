@@ -37,7 +37,7 @@ from ._scratchpad import extract_facts_from_notes
 # All specialist child agents the Critic can request as replan reinforcement. Kept in sync
 # with dispatcher.EXPERT_RUNNERS — used to decide if any unexecuted expert
 # is still available before firing REPLAN.
-_ALL_EXPERTS = ("Trainer", "Nutritionist", "Psychologist", "Doctor")
+_ALL_EXPERTS = ("Analyst", "Trainer", "Nutritionist", "Psychologist", "Doctor")
 
 _CRITICAL_REVIEW_PATTERN = re.compile(
     r"ACL|前交叉|韧带|半月板|术后|康复|撕裂|骨折|肩袖|腰椎|椎间盘|冠心|心脏|糖尿|"
@@ -62,9 +62,13 @@ _DETERMINISTIC_SAFE_PATTERN = re.compile(
 
 _FORBIDDEN_ACL_EXERCISE = re.compile(r"ACL|前交叉|韧带", re.IGNORECASE)
 _OPEN_CHAIN_KNEE_EXTENSION = re.compile(r"坐姿(?:腿屈伸|伸膝)|腿屈伸", re.IGNORECASE)
+_ACTUATION_RECORD_CLAIM = re.compile(r"已(?:经)?(?:帮你)?(?:记录|写入|保存)|已(?:经)?(?:安排|排好)", re.IGNORECASE)
+_ACTUATION_REMINDER_CLAIM = re.compile(r"已(?:经)?(?:帮你)?(?:设置|设好|创建|安排).{0,8}提醒|提醒已(?:设置|创建|写入)", re.IGNORECASE)
+_PRECISE_NUTRITION_NUMBER = re.compile(r"\d+(?:\.\d+)?\s*(?:kcal|千卡|大卡|g|克)", re.IGNORECASE)
 
 
 _EXPERT_LABELS = {
+    "Analyst": "数据分析师",
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
     "Psychologist": "心理疗愈师",
@@ -114,6 +118,8 @@ _CRITIC_SYSTEM = """\
 - 常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）可给一般推荐摄入范围、频率与注意事项；这不视为处方药剂量越权
 - 跨专家事实性矛盾
 - 如果本轮已派出 Doctor，最终回答必须包含“仅供参考，如有不适请就医”；若缺失，请 REVISE 补上
+- Actuation 真实性：草稿若声称“已记录 / 已保存 / 已写入 / 已设提醒 / 已安排”，必须能在系统提供的 actuation_log 中看到对应 ok=true 的成功流水；否则 REVISE，删除或改成“可以帮你记录/建议设置”。
+- Vision 置信度：若系统提供的 vision_extractions.meal.confidence < 0.5，草稿不得用确定语气给出精确热量或宏量营养素；必须写成粗估/区间/需用户补充确认。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【P3 · 个性化落地缺失（REVISE）】
@@ -255,6 +261,61 @@ def _format_p3_check(check: dict) -> str:
     )
 
 
+def _format_json_section(value) -> str:
+    if not value:
+        return "（无）"
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        return str(value)
+
+
+def _has_successful_action(actuation_log: list[dict], *prefixes: str) -> bool:
+    for event in actuation_log or []:
+        if not isinstance(event, dict) or not event.get("ok"):
+            continue
+        action = str(event.get("action") or "")
+        if any(action.startswith(prefix) for prefix in prefixes):
+            return True
+    return False
+
+
+def _actuation_claim_issue(draft: str, actuation_log: list[dict]) -> str:
+    if _ACTUATION_REMINDER_CLAIM.search(draft or "") and not _has_successful_action(actuation_log, "push_reminder"):
+        return "REMINDER"
+    if _ACTUATION_RECORD_CLAIM.search(draft or "") and not _has_successful_action(
+        actuation_log,
+        "log_meal",
+        "log_workout",
+        "log_wellness",
+        "push_reminder",
+    ):
+        return "RECORD"
+    return ""
+
+
+def _soften_unverified_actuation_claims(draft: str, issue: str) -> str:
+    text = draft or ""
+    if issue == "REMINDER":
+        text = re.sub(r"已(?:经)?(?:帮你)?(?:设置|设好|创建|安排).{0,8}提醒", "我建议你设置一个提醒", text)
+        text = re.sub(r"提醒已(?:设置|创建|写入)", "提醒可以设置", text)
+        return text
+    if issue == "RECORD":
+        text = re.sub(r"已(?:经)?(?:帮你)?(?:记录|写入|保存)", "建议记录", text)
+        text = re.sub(r"已(?:经)?(?:安排|排好)", "可以安排", text)
+    return text
+
+
+def _low_confidence_meal(vision_extractions: dict) -> bool:
+    meal = (vision_extractions or {}).get("meal")
+    if not isinstance(meal, dict):
+        return False
+    try:
+        return float(meal.get("confidence") or 0) < 0.5
+    except Exception:
+        return False
+
+
 def _can_fast_pass(user_question: str, draft: str, profile: dict, executed: list[str], p3_check: dict) -> bool:
     """Skip the expensive LLM critic for straightforward low-risk answers."""
     if not draft or not executed:
@@ -299,6 +360,9 @@ def critic_node(state):
 
     notes_text = _format_notes(state.get("agent_notes") or {})
     user_question = get_user_question(state) or "（未获取到原始问题）"
+    actuation_log = state.get("actuation_log") or []
+    vision_extractions = state.get("vision_extractions") or {}
+    recent_logs_summary = state.get("recent_logs_summary") or ""
 
     executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
     replan_count = int(state.get("replan_count", 0) or 0)
@@ -310,6 +374,48 @@ def critic_node(state):
     decision_section = format_decision_points_for_prompt(decision_points)
     p3_check = check_decision_points_landed(draft, decision_points)
     p3_check_text = _format_p3_check(p3_check)
+
+    actuation_issue = _actuation_claim_issue(draft, actuation_log)
+    if actuation_issue:
+        final_text = _soften_unverified_actuation_claims(draft, actuation_issue)
+        if doctor_executed:
+            final_text = ensure_doctor_disclaimer(final_text)
+        try:
+            append_episode(
+                user_id=user_id,
+                query=get_user_question(state) or "",
+                experts=executed,
+                gist=final_text,
+                facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
+            )
+        except Exception:
+            pass
+        return {
+            "messages": [AIMessage(content=final_text)],
+            "critic_verdict": f"REVISE_RULE_ACTUATION_{actuation_issue}",
+        }
+
+    if _low_confidence_meal(vision_extractions) and _PRECISE_NUTRITION_NUMBER.search(draft):
+        final_text = (
+            "图片识别置信度偏低，下面的热量和宏量营养素只能当作粗估范围，最好用食材重量或包装信息再确认。\n\n"
+            f"{draft}"
+        )
+        if doctor_executed:
+            final_text = ensure_doctor_disclaimer(final_text)
+        try:
+            append_episode(
+                user_id=user_id,
+                query=get_user_question(state) or "",
+                experts=executed,
+                gist=final_text,
+                facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
+            )
+        except Exception:
+            pass
+        return {
+            "messages": [AIMessage(content=final_text)],
+            "critic_verdict": "REVISE_RULE_VISION_CONFIDENCE",
+        }
 
     if _can_fast_pass(user_question, draft, profile, executed, p3_check):
         try:
@@ -354,22 +460,27 @@ def critic_node(state):
         }
 
     safety_section = _retrieve_safety(user_question, draft)
+    decision_section_text = decision_section or "【必须融入正文的个性化决策点】\n（无）\n"
+    replan_budget_instruction = "" if can_replan else "当前补员配额已用尽，请只在 PASS / REVISE 中二选一。\n"
 
     review_prompt = (
         f"用户卡片（与专家看到的个性化上下文一致）：\n{user_card}\n\n"
         f"用户画像原始 JSON（安全审查用）：\n{profile_text}\n\n"
         f"可用于 P3 个性化校验的画像锚点：{anchors or '（无）'}\n\n"
-        f"{decision_section or '【必须融入正文的个性化决策点】\n（无）\n'}\n"
+        f"{decision_section_text}\n"
         f"确定性 P3 预检结果：\n{p3_check_text}\n\n"
         f"用户本轮问题：\n{user_question}\n\n"
+        f"本轮图片/视觉抽取结果：\n{_format_json_section(vision_extractions)}\n\n"
+        f"近7日结构化日志摘要：\n{recent_logs_summary or '（无）'}\n\n"
+        f"本轮真实 side-effect / actuation_log：\n{_format_json_section(actuation_log)}\n\n"
         f"本轮已派出专家：{', '.join(executed) if executed else '（无）'}\n"
         f"尚未派出但可补叫：{', '.join(unexecuted) if unexecuted else '（无可补叫）'}\n"
         f"已 replan 次数：{replan_count}（上限 {REPLAN_CAP}）\n\n"
         f"各专家共享 scratchpad 要点：\n{notes_text}\n\n"
         f"{safety_section}"
         f"即将发送给用户的草稿回答：\n{draft}\n\n"
-        + ("当前补员配额已用尽，请只在 PASS / REVISE 中二选一。\n" if not can_replan else "")
-        + "请按指定格式给出审核结论。"
+        f"{replan_budget_instruction}"
+        "请按指定格式给出审核结论。"
     )
 
     try:

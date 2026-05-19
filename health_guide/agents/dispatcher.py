@@ -23,6 +23,7 @@ import concurrent.futures
 from typing import Callable, Dict, List
 
 from ._scratchpad import format_peer_notes
+from .analyst import run_analyst
 from .doctor import run_doctor
 from .fallbacks import expert_error_update
 from .nutritionist import run_nutritionist
@@ -34,6 +35,7 @@ from .psychologist import run_psychologist
 REPLAN_CAP = 2
 
 EXPERT_RUNNERS: Dict[str, Callable[..., dict]] = {
+    "Analyst": run_analyst,
     "Trainer": run_trainer,
     "Nutritionist": run_nutritionist,
     "Psychologist": run_psychologist,
@@ -47,6 +49,7 @@ def _merge_result(acc: dict, result: dict) -> None:
     acc["expert_responses"].update(result.get("expert_responses") or {})
     acc["agent_notes"].update(result.get("agent_notes") or {})
     acc["last_tools"].extend(result.get("last_tools") or [])
+    acc.setdefault("actuation_log", []).extend(result.get("actuation_log") or [])
     acc["retrieval_hits"] += int(result.get("retrieval_hits") or 0)
 
 
@@ -64,6 +67,7 @@ def _run_plan(
         "expert_responses": {},
         "agent_notes": {},
         "last_tools": [],
+        "actuation_log": [],
         "retrieval_hits": 0,
     }
     if not runners:
@@ -135,6 +139,7 @@ def dispatcher_node(state):
         "expert_responses": batch["expert_responses"],
         "agent_notes": batch["agent_notes"],
         "last_tools": batch["last_tools"],
+        "actuation_log": batch.get("actuation_log") or [],
         "retrieval_hits": batch["retrieval_hits"],
         "executed": executed,
         "plan": [],

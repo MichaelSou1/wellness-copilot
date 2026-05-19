@@ -104,11 +104,23 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="详细输出 MCP 工具调用与各子 agent（专家）ReAct 步骤，用于行为 traceroute。",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["cli", "wechat"],
+        default=os.environ.get("HEALTH_GUIDE_MODE", "cli"),
+        help="运行模式：cli 为本地命令行，wechat 为微信 iLink 长轮询 worker。",
+    )
     return parser.parse_args()
 
 
 def main():
     args = _parse_args()
+    if args.mode == "wechat":
+        from scripts.wechat_ilink_worker import main as wechat_worker_main
+
+        wechat_worker_main()
+        return
+
     set_detail(args.detail)
     detail = args.detail
     if args.detail:
@@ -166,6 +178,8 @@ def main():
         tools_used = []
         final_answer = ""
         retrieval_hits = 0
+        actuation_events = []
+        vision_calls = 0
 
         try:
             with _suppress_process_output(not detail):
@@ -231,6 +245,16 @@ def main():
                                 for tool_name in real_tools:
                                     print(f"[调用工具]: {tool_name}")
 
+                        if "actuation_log" in value and value["actuation_log"]:
+                            actuation_events.extend(value["actuation_log"])
+                            if detail:
+                                print(f"[Actuation]: {len(value['actuation_log'])} 条真实 side-effect 流水")
+
+                        if "vision_extractions" in value and value["vision_extractions"]:
+                            vision_calls += 1
+                            if detail:
+                                print("[Vision]: 已写入本轮图片识别结果")
+
                         if "retrieval_hits" in value:
                             rh = value.get("retrieval_hits", 0)
                             if isinstance(rh, (int, float, str)):
@@ -295,6 +319,8 @@ def main():
                     retrieval_hits=retrieval_hits,
                     citations_count=citations_count,
                     latency_ms=latency_ms,
+                    actuation_count=len(actuation_events),
+                    vision_calls=vision_calls,
                 )
             )
         except Exception as e:

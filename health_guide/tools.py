@@ -9,6 +9,13 @@ from .rag import LocalKnowledgeBase
 from .config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
 from .profile_store import get_user_profile as get_profile_from_store
 from .profile_store import update_user_profile as update_profile_in_store
+from .integrations.local_logs import (
+    log_meal,
+    log_wellness_checkin,
+    log_workout,
+    query_logs,
+)
+from .integrations.push_reminder import push_reminder
 
 # Per-agent KB singletons — created lazily on first call.
 _AGENT_KBS: dict = {}
@@ -258,4 +265,9 @@ tools = [
     add_dietary_preference,
     add_stress_source,
     set_response_style,
+    log_meal,
+    log_workout,
+    log_wellness_checkin,
+    query_logs,
+    push_reminder,
 ]

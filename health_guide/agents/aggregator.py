@@ -12,6 +12,7 @@ from .fallbacks import aggregate_fallback
 from .query_rewriter import get_user_question
 
 _EXPERT_DOMAIN_LABELS = {
+    "Analyst":      "结构化日志复盘",
     "Trainer":      "训练与运动恢复",
     "Nutritionist": "饮食与营养",
     "Psychologist":     "心理支持与情绪调节",
@@ -34,6 +35,7 @@ _SYSTEM_PROMPT = """\
   例如不要只写「心率114-133次/分钟」，要写「按你30岁估算，心率约114-133次/分钟」
 - 必须保留所有伤病、过敏、饮食禁忌等硬约束，不得软化或省略
 - 如果参考建议中包含 Doctor/医学建议，最终回答必须保留「仅供参考，如有不适请就医」
+- 只有当 actuation_log 中存在 ok=true 的对应流水时，才可以说“已记录/已设提醒/已安排”；否则只能说“可以记录/建议设置”。
 """
 
 _SYNTHESIS_TEMPLATE = """\
@@ -47,6 +49,9 @@ _SYNTHESIS_TEMPLATE = """\
 以下是从不同专业维度整理的参考建议（仅供你整合用，不要原文照抄或提及维度标签）：
 
 {expert_sections}
+
+本轮真实 side-effect / actuation_log（用于判断能否声称“已记录/已设提醒”）：
+{actuation_section}
 
 请根据上述参考内容，直接回答用户的问题。整合时遵循以下结构：
 1. 首句直接给出核心判断或整体方向（不要用"根据…""综合来看…"之类的引言）
@@ -139,12 +144,19 @@ def aggregator_node(state):
         f"[{_EXPERT_DOMAIN_LABELS.get(k, k)}]\n{v}"
         for k, v in relevant.items()
     )
+    try:
+        import json
+
+        actuation_section = json.dumps(state.get("actuation_log") or [], ensure_ascii=False, indent=2)
+    except Exception:
+        actuation_section = str(state.get("actuation_log") or [])
 
     synthesis_prompt = _SYNTHESIS_TEMPLATE.format(
         user_card=user_card,
         decision_section=decision_section,
         user_question=user_question or "（未获取到原始问题）",
         expert_sections=expert_sections,
+        actuation_section=actuation_section,
     )
 
     try:

@@ -6,10 +6,14 @@ from langchain_core.messages import HumanMessage
 
 from ..tools import (
     add_stress_source,
+    log_wellness_checkin,
+    push_reminder,
+    query_logs,
     retrieve_psychologist_knowledge,
     set_response_style,
     update_user_profile,
 )
+from ..integrations.local_logs import extract_actuation_events
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
 from ..personalization import (
@@ -27,6 +31,9 @@ _PSYCHOLOGIST_TOOLS = [
     set_response_style,
     update_user_profile,
     retrieve_psychologist_knowledge,
+    log_wellness_checkin,
+    query_logs,
+    push_reminder,
 ]
 
 _BODY_SYMPTOM_SIGNAL = re.compile(
@@ -252,6 +259,8 @@ def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context:
         "若检索结果明确返回 '未命中本地知识库'，可凭通用心理支持、睡眠卫生与压力管理知识给出保守兜底建议。"
         "若用户透露新的压力来源、睡眠信息、情绪变化或回答风格偏好，请优先调用 add_stress_source / "
         "set_response_style 记录；update_user_profile 仅作兼容兜底。"
+        "如果用户要求记录睡眠、情绪、压力或恢复打卡，请调用 log_wellness_checkin；"
+        "如果用户要求之后提醒放松、睡觉或复盘，请调用 push_reminder；需要复盘近期恢复时，先调用 query_logs(kind='wellness')。"
         "输出时兼顾心理支持、可执行节奏与风险边界。"
         "【领域边界】你不处理身体症状、疼痛、头晕、恶心、胸闷、心悸、伤病、训练负荷或用药问题；"
         "遇到这些内容，先明确建议由 Doctor/医生评估，训练相关负荷交给 Trainer。"
@@ -323,6 +332,7 @@ def run_psychologist(
             "agent_notes": {"Psychologist": build_scratchpad_note("Psychologist", answer)},
             "last_tools": used_tools,
             "retrieval_hits": retrieval_hits,
+            "actuation_log": extract_actuation_events(result["messages"]),
         }
     except Exception as e:
         return expert_error_update("Psychologist", e)

@@ -1,0 +1,14 @@
+[Unit]
+Description=Health Guide reminder dispatcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/health-guide
+EnvironmentFile=/opt/health-guide/.env
+ExecStart=/usr/bin/python3 scripts/reminder_dispatcher.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,7 @@ from langgraph.graph.message import add_messages
 RESET_SENTINEL = "__RESET__"
 
 
-def _turn_dict(a: Dict[str, str], b: Dict[str, str]) -> Dict[str, str]:
+def _turn_dict(a: Dict, b: Dict) -> Dict:
     """Merge dict, with a reset sentinel.
 
     When the incoming dict contains key ``__RESET__`` (any value), the
@@ -20,7 +20,7 @@ def _turn_dict(a: Dict[str, str], b: Dict[str, str]) -> Dict[str, str]:
     return {**(a or {}), **b}
 
 
-def _turn_list(a: List[str], b: List[str]) -> List[str]:
+def _turn_list(a: List, b: List) -> List:
     """Append list, with a reset sentinel as the first element."""
     if isinstance(b, list) and b and b[0] == RESET_SENTINEL:
         return list(b[1:])
@@ -79,5 +79,15 @@ class AgentState(TypedDict, total=False):
     episode_context: Annotated[str, _take_last_str]
     # 本轮统一个性化快照（TurnStart 构建，Orchestrator/Experts/Aggregator/Critic 只读 state）
     personalization_ctx: Annotated[Dict, _take_last_dict]
+    # 本轮图片输入（MultiModalPreprocessor 写入，TurnStart 清空）
+    image_inputs: Annotated[List[Dict], _turn_list]
+    # 本轮视觉抽取结果，例如 {"meal": {...}}
+    vision_extractions: Annotated[Dict[str, Dict], _turn_dict]
+    # 本轮真实 side-effect 流水，来自日志/提醒/推送等工具成功返回
+    actuation_log: Annotated[List[Dict], _turn_list]
+    # TurnStart 回灌的近期结构化日志摘要（跨轮保留，下一轮覆盖）
+    recent_logs_summary: Annotated[str, _take_last_str]
+    # 微信入口上下文：context_token/chat_type/user_wxid 等
+    wechat_context: Annotated[Dict, _take_last_dict]
     # Orchestrator 决策：DIRECT / PLAN / NO_REPLAN，用于 graph 条件路由和观测。
     orchestrator_decision: Annotated[str, _take_last_str]

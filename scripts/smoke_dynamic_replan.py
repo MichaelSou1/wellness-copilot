@@ -1,13 +1,12 @@
-"""Smoke test for dynamic replan via meta-LLM ReplanJudge.
+"""Smoke test for dynamic replan compatibility and current Critic replan path.
 
 Layers:
 
 1. **Unit**: ReplanJudge._parse_verdict accepts CONTINUE / REPLAN forms.
 2. **Unit**: dispatcher_node honors `replan_request` and clears it.
 3. **Unit**: dispatcher_node respects REPLAN_CAP.
-4. **Integration**: build a graph that swaps in a deterministic Trainer
-   stub *and* a deterministic ReplanJudge stub, then verifies the replan
-   loop runs end-to-end and the graph finishes via Aggregator → Critic.
+4. **Integration**: build a graph matching the current topology where Critic
+   sets ``replan_context`` once, routes back to Orchestrator, then finishes.
 """
 import os
 import sys
@@ -89,107 +88,83 @@ def test_dispatcher_replan_cap():
 
 
 def test_integration_replan_loop():
-    """End-to-end with stubbed Trainer + stubbed ReplanJudge.
-
-    Trainer stub: returns a fixed answer (no marker — markers are gone).
-    Judge stub: forces REPLAN once for Trainer, CONTINUE afterwards.
-    """
+    """End-to-end with current Critic -> Orchestrator replan path."""
     from langgraph.graph import StateGraph, END
     from langgraph.checkpoint.memory import MemorySaver
+    from langchain_core.messages import AIMessage
 
     from health_guide.state import AgentState
-    import health_guide.agents.critic as critic
-    import health_guide.agents.dispatcher as dispatcher_mod
-    from health_guide.agents.dispatcher import dispatcher_node as real_dispatcher
-    from health_guide.agents.aggregator import aggregator_node
-    from health_guide.agents.critic import critic_node
-    from health_guide.graph import _route_after_dispatch, _route_after_judge, _route_after_orchestrator
+    from health_guide.graph import _route_after_critic, _route_after_orchestrator
 
     def orchestrator_stub(state):
         if state.get("replan_context"):
+            executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
             return {
-                "plan": ["Psychologist"],
+                "expert_responses": {"Psychologist": "睡前 30 分钟降低刺激，做 5 分钟呼吸放松。"},
+                "agent_notes": {"Psychologist": "睡眠：睡前 30 分钟降刺激 + 5 分钟呼吸"},
+                "last_tools": [],
+                "retrieval_hits": 0,
+                "executed": executed + ["Psychologist"],
+                "plan": [],
                 "replan_context": "",
                 "next": [],
-                "orchestrator_decision": "PLAN",
+                "orchestrator_decision": "CALLED_CHILD",
             }
-        return {
-            "plan": ["Trainer"],
-            "executed": ["Orchestrator"],
-            "replan_count": 0,
-            "replan_context": "",
-            "next": [],
-            "orchestrator_decision": "PLAN",
-        }
-
-    def trainer_stub(*args, **kwargs):
         return {
             "expert_responses": {"Trainer": "今晚做 20 分钟轻度有氧。"},
             "agent_notes": {"Trainer": "训练：20 分钟轻度有氧"},
             "last_tools": [],
             "retrieval_hits": 0,
+            "executed": ["Trainer"],
+            "plan": [],
+            "replan_count": 0,
+            "replan_context": "",
+            "next": [],
+            "orchestrator_decision": "CALLED_CHILD",
         }
 
-    def psychologist_stub(*args, **kwargs):
-        return {
-            "expert_responses": {"Psychologist": "睡前 30 分钟降低刺激，做 5 分钟呼吸放松。"},
-            "agent_notes": {"Psychologist": "睡眠：睡前 30 分钟降刺激 + 5 分钟呼吸"},
-            "last_tools": [],
-            "retrieval_hits": 0,
-        }
+    def aggregator_stub(state):
+        executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
+        responses = state.get("expert_responses") or {}
+        draft = "\n".join(responses.get(role, "") for role in executed if responses.get(role))
+        return {"draft_answer": draft}
 
-    # Stateful stub via closure — fire REPLAN once on Trainer, then always CONTINUE.
     fired = {"v": False}
 
-    def judge_stub(state):
+    def critic_stub(state):
         executed = state.get("executed") or []
-        if not executed:
-            return {}
-        last = executed[-1]
-        if last == "Trainer" and not fired["v"]:
+        if "Trainer" in executed and "Psychologist" not in executed and not fired["v"]:
             fired["v"] = True
-            return {"replan_request": "用户睡眠问题没解决，需要 Psychologist 补充建议"}
-        return {}
+            return {
+                "critic_verdict": "REPLAN",
+                "replan_context": "安全审核员要求补叫 Psychologist：用户睡眠问题没解决",
+                "replan_count": int(state.get("replan_count") or 0) + 1,
+                "draft_answer": "",
+            }
+        return {
+            "messages": [AIMessage(content=state.get("draft_answer") or "done")],
+            "critic_verdict": "PASS",
+        }
 
-    old_runners = dict(dispatcher_mod.EXPERT_RUNNERS)
-    old_critic_llm = critic.llm
-    dispatcher_mod.EXPERT_RUNNERS = {
-        "Trainer": trainer_stub,
-        "Psychologist": psychologist_stub,
-    }
-    critic.llm = PassLLM()
+    workflow = StateGraph(AgentState)
+    workflow.add_node("Orchestrator", orchestrator_stub)
+    workflow.add_node("Aggregator", aggregator_stub)
+    workflow.add_node("Critic", critic_stub)
 
-    try:
-        workflow = StateGraph(AgentState)
-        workflow.add_node("Orchestrator", orchestrator_stub)
-        workflow.add_node("Dispatcher", real_dispatcher)
-        workflow.add_node("ReplanJudge", judge_stub)
-        workflow.add_node("Aggregator", aggregator_node)
-        workflow.add_node("Critic", critic_node)
+    workflow.set_entry_point("Orchestrator")
+    workflow.add_conditional_edges(
+        "Orchestrator",
+        _route_after_orchestrator,
+        ["Aggregator", "Critic", END],
+    )
+    workflow.add_edge("Aggregator", "Critic")
+    workflow.add_conditional_edges(
+        "Critic",
+        _route_after_critic,
+        ["Orchestrator", END],
+    )
 
-        workflow.set_entry_point("Orchestrator")
-        workflow.add_conditional_edges(
-            "Orchestrator",
-            _route_after_orchestrator,
-            ["Dispatcher", "Aggregator", END],
-        )
-        workflow.add_conditional_edges(
-            "Dispatcher",
-            _route_after_dispatch,
-            ["Orchestrator", "ReplanJudge", END],
-        )
-        workflow.add_conditional_edges(
-            "ReplanJudge",
-            _route_after_judge,
-            ["Dispatcher", "Aggregator"],
-        )
-        workflow.add_edge("Aggregator", "Critic")
-        workflow.add_edge("Critic", END)
-
-        test_graph = workflow.compile(checkpointer=MemorySaver())
-    finally:
-        dispatcher_mod.EXPERT_RUNNERS = old_runners
-        critic.llm = old_critic_llm
+    test_graph = workflow.compile(checkpointer=MemorySaver())
 
     thread_id = str(uuid.uuid4())
     user_id = "smoke_judge_user"
@@ -203,51 +178,31 @@ def test_integration_replan_loop():
     executed_final = []
     final_answer = ""
     critic_verdict = ""
-    old_runners = dict(dispatcher_mod.EXPERT_RUNNERS)
-    old_critic_llm = critic.llm
-    dispatcher_mod.EXPERT_RUNNERS = {
-        "Trainer": trainer_stub,
-        "Psychologist": psychologist_stub,
-    }
-    critic.llm = PassLLM()
-    try:
-        for event in test_graph.stream(
-            {"messages": [HumanMessage(content=query)], "profile_user_id": user_id},
-            config,
-        ):
-            for node, value in event.items():
-                if value is None:
-                    value = {}
-                if node == "Orchestrator":
-                    orchestrator_visits += 1
-                    print(f"  [Orchestrator #{orchestrator_visits}] plan={value.get('plan', [])}")
-                elif node == "Dispatcher":
-                    nxt = value.get("next")
-                    if nxt == ["__REPLAN__"]:
-                        saw_replan_route = True
-                        print(f"  [Dispatcher] -> __REPLAN__ (ctx={value.get('replan_context')!r})")
-                    elif nxt:
-                        print(f"  [Dispatcher] -> {nxt[0]}")
-                    if value.get("executed"):
-                        executed_final = value["executed"]
-                elif node == "ReplanJudge":
-                    if value.get("replan_request"):
-                        print(f"  [ReplanJudge] requests replan: {value['replan_request']}")
-                    else:
-                        print("  [ReplanJudge] CONTINUE")
-                elif node == "Critic":
-                    critic_verdict = value.get("critic_verdict", "")
-                    if value.get("messages"):
-                        last_msg = value["messages"][-1]
-                        final_answer = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-                    print(f"  [Critic] verdict={critic_verdict}")
-    finally:
-        dispatcher_mod.EXPERT_RUNNERS = old_runners
-        critic.llm = old_critic_llm
+    for event in test_graph.stream(
+        {"messages": [HumanMessage(content=query)], "profile_user_id": user_id},
+        config,
+    ):
+        for node, value in event.items():
+            if value is None:
+                value = {}
+            if node == "Orchestrator":
+                orchestrator_visits += 1
+                if value.get("executed"):
+                    executed_final = value["executed"]
+                print(f"  [Orchestrator #{orchestrator_visits}] executed={value.get('executed', [])}")
+            elif node == "Critic":
+                critic_verdict = value.get("critic_verdict", "")
+                if value.get("replan_context"):
+                    saw_replan_route = True
+                    print(f"  [Critic] requests replan: {value['replan_context']}")
+                if value.get("messages"):
+                    last_msg = value["messages"][-1]
+                    final_answer = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+                print(f"  [Critic] verdict={critic_verdict}")
 
     assert fired["v"], "Judge stub never fired (state plumbing broken?)"
     assert orchestrator_visits >= 2, f"expected Orchestrator to run >=2x, got {orchestrator_visits}"
-    assert saw_replan_route, "Dispatcher never routed to __REPLAN__"
+    assert saw_replan_route, "Critic never routed back to Orchestrator"
     assert "Trainer" in executed_final, f"Trainer must run, got {executed_final}"
     assert "Psychologist" in executed_final, f"Psychologist must join after replan, got {executed_final}"
     assert len(executed_final) >= 2, (
@@ -255,7 +210,7 @@ def test_integration_replan_loop():
     )
     assert critic_verdict, "Critic did not produce a verdict"
     assert final_answer, "no final answer"
-    print("  ✓ integration: Judge requested replan, Orchestrator re-ran, Psychologist joined, graph finished")
+    print("  ✓ integration: Critic requested replan, Orchestrator re-ran, Psychologist joined, graph finished")
     print(f"     orchestrator_visits={orchestrator_visits}, executed={executed_final}, verdict={critic_verdict}")
 
 
@@ -266,7 +221,7 @@ def main():
     test_dispatcher_replan_trigger()
     print("\n[unit] dispatcher replan cap")
     test_dispatcher_replan_cap()
-    print("\n[integration] full graph with Judge stub forcing one replan")
+    print("\n[integration] current graph with Critic stub forcing one replan")
     test_integration_replan_loop()
     print("\nSMOKE TEST OK")
 

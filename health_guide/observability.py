@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+from .config import OBSERVABILITY_DB_PATH
+
 
 @dataclass
 class TurnRecord:
@@ -18,11 +20,18 @@ class TurnRecord:
     retrieval_hits: int
     citations_count: int
     latency_ms: float
+    actuation_count: int = 0
+    vision_calls: int = 0
+    wechat_msgs_in: int = 0
+    wechat_msgs_out: int = 0
 
 
 class ObservabilityTracker:
-    def __init__(self, db_path: str = "observability.db"):
+    def __init__(self, db_path: str = OBSERVABILITY_DB_PATH):
         self.db_path = db_path
+        path = Path(db_path)
+        if path.parent and str(path.parent) not in {"", "."}:
+            path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._ensure_table()
 
@@ -41,10 +50,26 @@ class ObservabilityTracker:
                 tools_used TEXT,
                 retrieval_hits INTEGER,
                 citations_count INTEGER,
-                latency_ms REAL
+                latency_ms REAL,
+                actuation_count INTEGER DEFAULT 0,
+                vision_calls INTEGER DEFAULT 0,
+                wechat_msgs_in INTEGER DEFAULT 0,
+                wechat_msgs_out INTEGER DEFAULT 0
             )
             """
         )
+        existing = {
+            row[1]
+            for row in cur.execute("PRAGMA table_info(turn_metrics)").fetchall()
+        }
+        for name, ddl in {
+            "actuation_count": "ALTER TABLE turn_metrics ADD COLUMN actuation_count INTEGER DEFAULT 0",
+            "vision_calls": "ALTER TABLE turn_metrics ADD COLUMN vision_calls INTEGER DEFAULT 0",
+            "wechat_msgs_in": "ALTER TABLE turn_metrics ADD COLUMN wechat_msgs_in INTEGER DEFAULT 0",
+            "wechat_msgs_out": "ALTER TABLE turn_metrics ADD COLUMN wechat_msgs_out INTEGER DEFAULT 0",
+        }.items():
+            if name not in existing:
+                cur.execute(ddl)
         self._conn.commit()
 
     def log_turn(self, record: TurnRecord):
@@ -53,8 +78,9 @@ class ObservabilityTracker:
             """
             INSERT INTO turn_metrics (
                 created_at, thread_id, turn_index, route, user_query, final_answer,
-                tools_used, retrieval_hits, citations_count, latency_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tools_used, retrieval_hits, citations_count, latency_ms,
+                actuation_count, vision_calls, wechat_msgs_in, wechat_msgs_out
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.utcnow().isoformat(),
@@ -67,6 +93,10 @@ class ObservabilityTracker:
                 record.retrieval_hits,
                 record.citations_count,
                 record.latency_ms,
+                record.actuation_count,
+                record.vision_calls,
+                record.wechat_msgs_in,
+                record.wechat_msgs_out,
             ),
         )
         self._conn.commit()

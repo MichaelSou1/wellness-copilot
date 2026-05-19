@@ -7,6 +7,7 @@ of the parent agent's tool-use loop, not a LangGraph routing step.
 from __future__ import annotations
 
 import os
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -35,6 +36,7 @@ from ..tools import (
 )
 from ..utils import create_agent
 from ._scratchpad import build_scratchpad_note, extract_facts_from_notes, format_peer_notes
+from .analyst import run_analyst
 from .doctor import ensure_doctor_disclaimer, run_doctor
 from .fallbacks import orchestrator_error_answer
 from .nutritionist import run_nutritionist
@@ -50,6 +52,10 @@ _ADVICE_REQUEST_SIGNAL = re.compile(
 
 _INJURY_RECORD_SIGNAL = re.compile(
     r"诊断出|被诊断|医生说|术后|重建|康复|恢复期|损伤|撕裂|拉伤|骨折|半月板|ACL|前交叉|肩袖|腰痛",
+    re.IGNORECASE,
+)
+_DIETARY_RECORD_SIGNAL = re.compile(
+    r"乳糖不耐|乳糖不耐受|过敏|不吃|不喝|忌口|不能吃|不能喝",
     re.IGNORECASE,
 )
 
@@ -103,8 +109,18 @@ _PSYCH_CRISIS_SIGNAL = re.compile(
     r"没有活下去|想死|消失算了",
     re.IGNORECASE,
 )
+_ANALYST_SIGNAL = re.compile(
+    r"这周|本周|上周|进展|趋势|复盘|达成|日志|吃得怎么样|练得怎么样|恢复得怎么样|"
+    r"最近(?:的)?(?:饮食|训练|日志|数据|趋势|进展)",
+    re.IGNORECASE,
+)
+_NUTRITION_CONTEXT_SIGNAL = re.compile(r"饮食|吃|餐|热量|蛋白|碳水|脂肪|营养|体重|减脂|增肌", re.IGNORECASE)
+_WELLNESS_CONTEXT_SIGNAL = re.compile(r"睡眠|睡|情绪|压力|恢复|疲劳|精神|心情", re.IGNORECASE)
+_REMINDER_SIGNAL = re.compile(r"提醒|到点|定时|闹钟|叫我", re.IGNORECASE)
+_NUTRITION_TIMING_SIGNAL = re.compile(r"(?:训练|运动)(?:前|后).{0,12}(?:吃|餐|补|碳水|蛋白|营养)|(?:吃|餐|补).{0,12}(?:训练|运动)(?:前|后)", re.IGNORECASE)
 
 _ROLE_TOOL_NAMES = {
+    "Analyst": "consult_analyst",
     "Trainer": "consult_trainer",
     "Nutritionist": "consult_nutritionist",
     "Psychologist": "consult_psychologist",
@@ -112,6 +128,7 @@ _ROLE_TOOL_NAMES = {
 }
 
 _ROLE_DISPLAY_NAMES = {
+    "Analyst": "数据分析师",
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
     "Psychologist": "心理疗愈师",
@@ -119,6 +136,7 @@ _ROLE_DISPLAY_NAMES = {
 }
 
 _EXPERT_RUNNERS = {
+    "Analyst": run_analyst,
     "Trainer": run_trainer,
     "Nutritionist": run_nutritionist,
     "Psychologist": run_psychologist,
@@ -146,8 +164,11 @@ class _ChildCallContext:
     agent_notes: Dict[str, str] = field(default_factory=dict)
     prior_agent_notes: Dict[str, str] = field(default_factory=dict)
     last_tools: List[str] = field(default_factory=list)
+    actuation_log: List[dict] = field(default_factory=list)
     retrieval_hits: int = 0
     executed: List[str] = field(default_factory=list)
+    vision_extractions: dict = field(default_factory=dict)
+    recent_logs_summary: str = ""
 
 
 def _profile_anchor_sentence(pctx: dict) -> str:
@@ -192,6 +213,23 @@ def _extract_injury_records(text: str) -> list[str]:
     if re.search(r"膝盖|膝关节", raw) and not any("膝" in r or "ACL" in r for r in records):
         records.append("膝盖不适")
 
+    seen = []
+    for item in records:
+        if item and item not in seen:
+            seen.append(item)
+    return seen
+
+
+def _extract_dietary_records(text: str) -> list[str]:
+    raw = text or ""
+    records: list[str] = []
+    if re.search(r"乳糖不耐|乳糖不耐受", raw):
+        records.append("不耐：乳糖不耐")
+    allergy_match = re.search(r"([\u4e00-\u9fa5A-Za-z0-9]+)\s*过敏", raw)
+    if allergy_match:
+        records.append(f"过敏：{allergy_match.group(1)}")
+    for match in re.finditer(r"不(?:吃|喝)\s*([\u4e00-\u9fa5A-Za-z0-9]+)", raw):
+        records.append(f"不吃/不喝：{match.group(1)}")
     seen = []
     for item in records:
         if item and item not in seen:
@@ -250,6 +288,7 @@ def _draft_for_critic_state(
     expert_responses: dict,
     agent_notes: dict,
     used_tools: list[str] | None = None,
+    actuation_log: list[dict] | None = None,
     retrieval_hits: int = 0,
     executed: list[str],
 ) -> dict:
@@ -258,6 +297,7 @@ def _draft_for_critic_state(
         "expert_responses": expert_responses,
         "agent_notes": agent_notes,
         "last_tools": used_tools or [],
+        "actuation_log": actuation_log or [],
         "retrieval_hits": retrieval_hits,
         "executed": executed,
         "plan": [],
@@ -283,6 +323,33 @@ def _physical_discomfort_roles(query: str) -> list[str]:
     if not has_discomfort:
         return []
     return ["Doctor"]
+
+
+def _analysis_review_roles(query: str) -> list[str]:
+    if not _ANALYST_SIGNAL.search(query or ""):
+        return []
+    roles = ["Analyst"]
+    if _EXERCISE_CONTEXT_SIGNAL.search(query or ""):
+        roles.append("Trainer")
+    if _NUTRITION_CONTEXT_SIGNAL.search(query or ""):
+        roles.append("Nutritionist")
+    if _WELLNESS_CONTEXT_SIGNAL.search(query or ""):
+        roles.append("Psychologist")
+    return roles
+
+
+def _reminder_roles(query: str) -> list[str]:
+    if not _REMINDER_SIGNAL.search(query or ""):
+        return []
+    if _EXERCISE_CONTEXT_SIGNAL.search(query or ""):
+        return ["Trainer"]
+    if _WELLNESS_CONTEXT_SIGNAL.search(query or ""):
+        return ["Psychologist"]
+    return ["Nutritionist"]
+
+
+def _nutrition_timing_roles(query: str) -> list[str]:
+    return ["Nutritionist"] if _NUTRITION_TIMING_SIGNAL.search(query or "") else []
 
 
 def _direct_state(
@@ -344,6 +411,33 @@ def _pure_injury_record_answer(state, user_question: str, pctx: dict) -> dict | 
         f"已记录：{'、'.join(injuries)}。先按医生给出的治疗/康复要求执行，"
         "在没有医生或理疗师许可前，相关部位先不要自行加负重、跑跳或做疼痛诱发动作。"
     )
+    return _direct_state(user_id, text, answer)
+
+
+def _pure_dietary_record_answer(state, user_question: str, pctx: dict) -> dict | None:
+    text = user_question or ""
+    if not _DIETARY_RECORD_SIGNAL.search(text):
+        return None
+    if _ADVICE_REQUEST_SIGNAL.search(text):
+        return None
+    records = _extract_dietary_records(text)
+    if not records:
+        return None
+
+    user_id = state.get("profile_user_id", "default_user")
+    profile = pctx.get("raw_profile") or {}
+    dietary = profile.get("dietary_context") or {}
+    existing = [str(x).strip() for x in (dietary.get("preferences") or []) if str(x).strip()]
+    merged = list(existing)
+    for record in records:
+        if record not in merged:
+            merged.append(record)
+    try:
+        store_update_user_profile(user_id, {"dietary_context": {"preferences": merged}})
+    except Exception:
+        pass
+
+    answer = f"已记录：{'、'.join(records)}。之后涉及饮食、蛋白补充或奶制品时，我会把这个限制带进去。"
     return _direct_state(user_id, text, answer)
 
 
@@ -443,6 +537,30 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
+def _grounding_section(ctx: _ChildCallContext) -> str:
+    sections = []
+    if ctx.vision_extractions:
+        sections.append(
+            "【本轮图片/视觉识别结果】\n"
+            f"{json.dumps(ctx.vision_extractions, ensure_ascii=False)}\n"
+            "请把其中的热量和宏量营养素当作估算值；confidence < 0.5 时必须用不确定语气。"
+        )
+    if ctx.recent_logs_summary:
+        sections.append(
+            "【近7日结构化日志摘要】\n"
+            f"{ctx.recent_logs_summary}\n"
+            "若用户询问最近、这周、复盘、进展或趋势，请优先基于真实日志回答。"
+        )
+    return "\n\n".join(sections)
+
+
+def _child_question(ctx: _ChildCallContext) -> str:
+    grounding = _grounding_section(ctx)
+    if not grounding:
+        return ctx.user_question
+    return f"{ctx.user_question}\n\n{grounding}"
+
+
 def _call_child_agent(role: str, ctx: _ChildCallContext) -> str:
     if role in ctx.executed:
         return f"[{role}] 本轮已经调用过该子 agent，请直接使用已有结果。"
@@ -451,11 +569,12 @@ def _call_child_agent(role: str, ctx: _ChildCallContext) -> str:
         {**ctx.prior_agent_notes, **ctx.agent_notes},
         self_role=role,
     )
-    result = runner(ctx.user_id, ctx.user_question, peer_notes, ctx.pctx, ctx.episode_context)
+    result = runner(ctx.user_id, _child_question(ctx), peer_notes, ctx.pctx, ctx.episode_context)
     response = (result.get("expert_responses") or {}).get(role, "")
     ctx.expert_responses.update(result.get("expert_responses") or {})
     ctx.agent_notes.update(result.get("agent_notes") or {})
     ctx.last_tools.extend(result.get("last_tools") or [])
+    ctx.actuation_log.extend(result.get("actuation_log") or [])
     ctx.retrieval_hits += int(result.get("retrieval_hits") or 0)
     ctx.executed.append(role)
     return response or f"[{role}] 子 agent 已完成，但没有返回可用文本。"
@@ -463,6 +582,7 @@ def _call_child_agent(role: str, ctx: _ChildCallContext) -> str:
 
 def _make_child_tool(role: str, ctx: _ChildCallContext):
     descriptions = {
+        "Analyst": "调用 Analyst 子 agent，读取本地 SQLite 健康日志，处理最近/本周/复盘/进展/趋势等数据诊断，不开处方。",
         "Trainer": "调用 Trainer 子 agent，处理训练、运动动作、运动计划、TDEE/BMR、伤病/康复期负荷和比赛训练。",
         "Nutritionist": "调用 Nutritionist 子 agent，处理饮食、营养、热量、蛋白质、补剂、食谱和比赛补给。",
         "Psychologist": (
@@ -483,6 +603,7 @@ def _make_child_tool(role: str, ctx: _ChildCallContext):
 
 def _orchestrator_tools(ctx: _ChildCallContext):
     return [
+        _make_child_tool("Analyst", ctx),
         _make_child_tool("Trainer", ctx),
         _make_child_tool("Nutritionist", ctx),
         _make_child_tool("Psychologist", ctx),
@@ -502,16 +623,19 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         f"{user_card}\n"
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
+        f"{_grounding_section(child_ctx)}\n\n"
         "你可以直接处理寒暄、感谢、告别、能力介绍、澄清、画像/偏好记录、回答风格记录、"
         "通用健康常识和医疗边界说明。只有用户提供新信息时才调用结构化画像工具；"
         "用户卡片就是本轮可用画像，不要为了读取画像而调用工具。\n\n"
         "可调用的专业子 agent 工具：\n"
+        "- consult_analyst：读取本地 SQLite 健康日志，处理最近/这周/复盘/进展/趋势/达成情况，只做数据诊断。\n"
         "- consult_trainer：训练、运动动作、运动计划、伤病/康复期负荷、TDEE/BMR、比赛训练。\n"
         "- consult_nutritionist：饮食、营养、热量、蛋白质、补剂、食谱、比赛补给。\n"
         "- consult_psychologist：心理疗愈师，仅处理压力、焦虑/情绪、动力下降、倦怠、压力性进食、睡前心理放松和心理安全边界；"
         "不处理身体症状、疼痛、头晕、恶心、伤病或医学不适。\n"
         "- consult_doctor：一般医学建议、症状风险分层、就医建议、用药/处方边界、医学资料查询。\n\n"
         "调用原则：\n"
+        "- 用户询问最近/这周/复盘/进展/趋势/达成情况时，先调用 consult_analyst；若还需要建议，再追加对应专家。\n"
         "- 用户要求具体训练/动作/运动安排时，调用 consult_trainer。\n"
         "- 用户要求具体饮食/热量/营养/补剂/食谱时，调用 consult_nutritionist。\n"
         "- 用户要求压力、焦虑、情绪困扰、心理倦怠、压力性进食、睡前脑子停不下来或动力下降时，调用 consult_psychologist。\n"
@@ -524,6 +648,9 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         "- 运动中胸闷/胸痛/心悸/头晕，同时调用 Doctor 和 Trainer，并优先给出就医/停止高强度训练边界。\n"
         "- 若用户画像或近期记录中有伤病/术后，且当前问题会改变训练负荷或体型目标，至少调用 Trainer。\n"
         "- 若用户画像有过敏/饮食禁忌，且当前问题涉及吃喝/补剂，至少调用 Nutritionist。\n\n"
+        "- 若【本轮图片/视觉识别结果】中存在 meal，且用户在问这餐/热量/蛋白/营养/增肌减脂，调用 Nutritionist；"
+        "若同一轮还要求安排训练，追加 Trainer。\n"
+        "- 若【近7日结构化日志摘要】不为空且用户问最近/这周/复盘/趋势/进展，优先调用相关子 agent，必要时让其 query_logs 读取明细。\n\n"
         "医疗边界：不能诊断疾病、开处方、给处方药剂量或保证“没事”。"
         "涉及胸痛/胸闷、呼吸困难、晕厥、头晕、恶心、明显心率异常、持续疼痛、用药剂量、处方或自我诊断时，"
         "必须调用 consult_doctor，并先建议就医/医生评估；不要列未经确认的诊断猜测。"
@@ -532,6 +659,24 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         "如多个子 agent 观点有重叠，只保留最完整且更安全的表达。"
     )
     return create_agent(llm, _orchestrator_tools(child_ctx), system_prompt)
+
+
+def _make_child_ctx(
+    state,
+    user_id: str,
+    user_question: str,
+    pctx: dict,
+    episode_context: str,
+) -> _ChildCallContext:
+    return _ChildCallContext(
+        user_id,
+        user_question,
+        pctx,
+        episode_context,
+        prior_agent_notes=dict(state.get("agent_notes") or {}),
+        vision_extractions=dict(state.get("vision_extractions") or {}),
+        recent_logs_summary=state.get("recent_logs_summary") or "",
+    )
 
 
 def _direct_answer(state, *, error: Exception | None = None) -> dict:
@@ -549,7 +694,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
         if error is not None:
             raise error
-        child_ctx = _ChildCallContext(user_id, user_question, pctx, episode_context)
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
 
         if _should_answer_medical_boundary_direct(user_question):
             _call_child_agent("Doctor", child_ctx)
@@ -566,6 +711,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
                     expert_responses=expert_responses,
                     agent_notes=agent_notes,
                     used_tools=used,
+                    actuation_log=child_ctx.actuation_log,
                     retrieval_hits=child_ctx.retrieval_hits,
                     executed=executed,
                 )
@@ -626,6 +772,10 @@ def _run_parent_agent(state) -> dict:
     if record_update:
         return record_update
 
+    dietary_update = _pure_dietary_record_answer(state, user_question, pctx)
+    if dietary_update:
+        return dietary_update
+
     simple_direct = _simple_direct_answer(state, user_question, pctx)
     if simple_direct:
         return simple_direct
@@ -634,18 +784,13 @@ def _run_parent_agent(state) -> dict:
         return _direct_answer(state)
 
     if _PSYCH_CRISIS_SIGNAL.search(user_question or ""):
-        child_ctx = _ChildCallContext(
-            user_id,
-            user_question,
-            pctx,
-            episode_context,
-            prior_agent_notes=dict(state.get("agent_notes") or {}),
-        )
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
         _call_child_agent("Psychologist", child_ctx)
         return {
             "expert_responses": child_ctx.expert_responses,
             "agent_notes": child_ctx.agent_notes,
             "last_tools": [_ROLE_TOOL_NAMES["Psychologist"], *child_ctx.last_tools],
+            "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
             "executed": child_ctx.executed,
             "plan": [],
@@ -658,13 +803,7 @@ def _run_parent_agent(state) -> dict:
 
     physical_roles = _physical_discomfort_roles(user_question)
     if physical_roles:
-        child_ctx = _ChildCallContext(
-            user_id,
-            user_question,
-            pctx,
-            episode_context,
-            prior_agent_notes=dict(state.get("agent_notes") or {}),
-        )
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
         used_tools: list[str] = []
         for role in physical_roles:
             _call_child_agent(role, child_ctx)
@@ -673,6 +812,73 @@ def _run_parent_agent(state) -> dict:
             "expert_responses": child_ctx.expert_responses,
             "agent_notes": child_ctx.agent_notes,
             "last_tools": used_tools + child_ctx.last_tools,
+            "actuation_log": child_ctx.actuation_log,
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
+        }
+
+    reminder_roles = _reminder_roles(user_question)
+    if reminder_roles:
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        used_tools: list[str] = []
+        for role in reminder_roles:
+            _call_child_agent(role, child_ctx)
+            used_tools.append(_ROLE_TOOL_NAMES[role])
+        return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": used_tools + child_ctx.last_tools,
+            "actuation_log": child_ctx.actuation_log,
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
+        }
+
+    nutrition_timing_roles = _nutrition_timing_roles(user_question)
+    if nutrition_timing_roles:
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        used_tools: list[str] = []
+        for role in nutrition_timing_roles:
+            _call_child_agent(role, child_ctx)
+            used_tools.append(_ROLE_TOOL_NAMES[role])
+        return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": used_tools + child_ctx.last_tools,
+            "actuation_log": child_ctx.actuation_log,
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
+        }
+
+    review_roles = _analysis_review_roles(user_question)
+    if review_roles:
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        used_tools: list[str] = []
+        for role in review_roles:
+            _call_child_agent(role, child_ctx)
+            used_tools.append(_ROLE_TOOL_NAMES[role])
+        return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": used_tools + child_ctx.last_tools,
+            "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
             "executed": child_ctx.executed,
             "plan": [],
@@ -685,13 +891,7 @@ def _run_parent_agent(state) -> dict:
 
     forced_roles = _roles_from_decision_points(pctx, user_question)
     if forced_roles:
-        child_ctx = _ChildCallContext(
-            user_id,
-            user_question,
-            pctx,
-            episode_context,
-            prior_agent_notes=dict(state.get("agent_notes") or {}),
-        )
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
         used_tools: list[str] = []
         for role in forced_roles:
             _call_child_agent(role, child_ctx)
@@ -700,6 +900,7 @@ def _run_parent_agent(state) -> dict:
             "expert_responses": child_ctx.expert_responses,
             "agent_notes": child_ctx.agent_notes,
             "last_tools": used_tools + child_ctx.last_tools,
+            "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
             "executed": child_ctx.executed,
             "plan": [],
@@ -712,13 +913,7 @@ def _run_parent_agent(state) -> dict:
 
     try:
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
-        child_ctx = _ChildCallContext(
-            user_id,
-            user_question,
-            pctx,
-            episode_context,
-            prior_agent_notes=dict(state.get("agent_notes") or {}),
-        )
+        child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
 
         if state.get("replan_context"):
             needed = ""
@@ -737,6 +932,7 @@ def _run_parent_agent(state) -> dict:
                     "expert_responses": child_ctx.expert_responses,
                     "agent_notes": child_ctx.agent_notes,
                     "last_tools": child_ctx.last_tools,
+                    "actuation_log": child_ctx.actuation_log,
                     "retrieval_hits": child_ctx.retrieval_hits,
                     "executed": [role for role in executed_roles if role != "Orchestrator"] + child_ctx.executed,
                     "plan": [],
@@ -766,6 +962,7 @@ def _run_parent_agent(state) -> dict:
                 "expert_responses": child_ctx.expert_responses,
                 "agent_notes": child_ctx.agent_notes,
                 "last_tools": all_tools,
+                "actuation_log": child_ctx.actuation_log,
                 "retrieval_hits": child_ctx.retrieval_hits,
                 "executed": child_ctx.executed,
                 "plan": [],
@@ -784,6 +981,7 @@ def _run_parent_agent(state) -> dict:
                 expert_responses={"Orchestrator": answer},
                 agent_notes=notes,
                 used_tools=all_tools,
+                actuation_log=child_ctx.actuation_log,
                 retrieval_hits=0,
                 executed=["Orchestrator"],
             )

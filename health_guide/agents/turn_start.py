@@ -42,6 +42,7 @@ from ..state import RESET_SENTINEL
 MAX_MESSAGES_BEFORE_SUMMARY = 20
 KEEP_RECENT_MESSAGES = 8
 HISTORY_SUMMARY_ID = "__history_summary__"
+_RECENT_LOGS_CACHE = {}
 
 
 _SUMMARIZER_SYSTEM = """\
@@ -110,6 +111,26 @@ def _load_episode_context(user_id: str, current_query: str) -> str:
     return format_episodes_for_prompt(merged, mark_source=True)
 
 
+def _load_recent_logs_summary(user_id: str) -> str:
+    """Best-effort 7-day local log summary for the next turn's grounding."""
+    try:
+        from datetime import date
+
+        from ..integrations.local_logs import summarize_recent_logs
+    except Exception:
+        return ""
+
+    cache_key = (user_id or "default_user", date.today().isoformat())
+    if cache_key in _RECENT_LOGS_CACHE:
+        return _RECENT_LOGS_CACHE[cache_key]
+    try:
+        summary = summarize_recent_logs(user_id=user_id, days_back=7)
+    except Exception:
+        summary = ""
+    _RECENT_LOGS_CACHE[cache_key] = summary
+    return summary
+
+
 def turn_start_node(state):
     user_id = state.get("profile_user_id", "default_user")
     messages = state.get("messages", []) or []
@@ -122,14 +143,19 @@ def turn_start_node(state):
         personalization_ctx = build_personalization_ctx(user_id)
     except Exception:
         personalization_ctx = {}
+    recent_logs_summary = _load_recent_logs_summary(user_id)
 
     update = {
         "episode_context": episode_context,
         "personalization_ctx": personalization_ctx,
+        "recent_logs_summary": recent_logs_summary,
         # Reset accumulator fields via sentinels honored by state.py reducers
         "agent_notes": {RESET_SENTINEL: True},
         "expert_responses": {RESET_SENTINEL: True},
         "last_tools": [RESET_SENTINEL],
+        "image_inputs": [RESET_SENTINEL],
+        "vision_extractions": {RESET_SENTINEL: True},
+        "actuation_log": [RESET_SENTINEL],
         "retrieval_hits": (RESET_SENTINEL, 0),
         # Plain-overwrite fields (no reducer)
         "plan": [],

@@ -1,0 +1,14 @@
+[Unit]
+Description=Health Guide WeChat worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/health-guide
+EnvironmentFile=/opt/health-guide/.env
+ExecStart=/usr/bin/python3 scripts/wechat_ilink_worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -47,6 +47,13 @@ DEFAULT_USER_PROFILE = {
 # 持久化画像存储文件
 PROFILE_STORE_PATH = os.environ.get("PROFILE_STORE_PATH", "profile_store.json")
 
+# LangGraph checkpoint / observability / health logs paths. Existing defaults stay
+# project-root relative for local development; Docker Compose overrides them to /app/data.
+SQLITE_DB_PATH = os.environ.get("SQLITE_DB_PATH", "checkpoints.db")
+OBSERVABILITY_DB_PATH = os.environ.get("OBSERVABILITY_DB_PATH", "observability.db")
+HEALTH_LOGS_DB_PATH = os.environ.get("HEALTH_LOGS_DB_PATH", "health_logs.db")
+DEFAULT_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Shanghai")
+
 # 情节记忆存储文件（每用户最近 N 轮对话摘要，跨 thread 持久化）
 EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
 EPISODE_SEMANTIC_RETRIEVAL_ENABLED = (
@@ -139,3 +146,41 @@ MCP_WGER_SCRIPT_PATH = os.environ.get("MCP_WGER_SCRIPT_PATH", "")
 # 90s 默认是为首次冷启动留余量：medical-mcp ~10-20s 拉包 + 启动 ~5s，国内代理慢时
 # 30s 不够。命中本地 npx 缓存后实际只用 1-2s。
 MCP_STARTUP_TIMEOUT_SEC = int(os.environ.get("MCP_STARTUP_TIMEOUT_SEC", "90"))
+
+# === 多模态 Vision（可选）===
+VISION_ENABLED = os.environ.get("VISION_ENABLED", "true").lower() in _TRUTHY
+VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "disabled").strip().lower()
+VISION_BASE_URL = os.environ.get("VISION_BASE_URL") or os.environ.get("LLM_BASE_URL") or ""
+VISION_API_KEY = os.environ.get("VISION_API_KEY") or os.environ.get("LLM_API_KEY") or ""
+VISION_MODEL = os.environ.get("VISION_MODEL", "")
+VISION_TIMEOUT_SEC = int(os.environ.get("VISION_TIMEOUT_SEC", "60"))
+
+# === 微信 iLink / ClawBot（可选）===
+WECHAT_ILINK_BASE_URL = os.environ.get(
+    "WECHAT_ILINK_BASE_URL",
+    "https://ilinkai.weixin.qq.com",
+).rstrip("/")
+WECHAT_BOT_TOKEN = os.environ.get("WECHAT_BOT_TOKEN", "")
+WECHAT_APP_ID = os.environ.get("WECHAT_APP_ID", "")
+WECHAT_APP_SECRET = os.environ.get("WECHAT_APP_SECRET", "")
+WECHAT_POLL_TIMEOUT_SEC = int(os.environ.get("WECHAT_POLL_TIMEOUT_SEC", "30"))
+WECHAT_WORKER_IDLE_SEC = float(os.environ.get("WECHAT_WORKER_IDLE_SEC", "1"))
+WECHAT_ENDPOINT_QRCODE = os.environ.get("WECHAT_ENDPOINT_QRCODE", "/v1/bot/qrcode")
+WECHAT_ENDPOINT_QRCODE_STATUS = os.environ.get(
+    "WECHAT_ENDPOINT_QRCODE_STATUS",
+    "/v1/bot/qrcode/status",
+)
+WECHAT_ENDPOINT_UPDATES = os.environ.get("WECHAT_ENDPOINT_UPDATES", "/v1/messages/updates")
+WECHAT_ENDPOINT_SEND = os.environ.get("WECHAT_ENDPOINT_SEND", "/v1/messages/send")
+WECHAT_ENDPOINT_PUSH = os.environ.get("WECHAT_ENDPOINT_PUSH", "/v1/messages/push")
+WECHAT_ENDPOINT_MEDIA = os.environ.get("WECHAT_ENDPOINT_MEDIA", "/v1/media/{media_id}")
+
+# === 备份（可选）===
+BACKUP_DIR = os.environ.get("BACKUP_DIR", "backups")
+BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "14"))
+BACKUP_INTERVAL_HOURS = float(os.environ.get("BACKUP_INTERVAL_HOURS", "24"))
+OSS_ACCESS_KEY_ID = os.environ.get("OSS_ACCESS_KEY_ID", "")
+OSS_ACCESS_KEY_SECRET = os.environ.get("OSS_ACCESS_KEY_SECRET", "")
+OSS_BUCKET = os.environ.get("OSS_BUCKET", "")
+OSS_ENDPOINT = os.environ.get("OSS_ENDPOINT", "")
+OSS_PREFIX = os.environ.get("OSS_PREFIX", "health-guide-backup")

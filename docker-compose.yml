@@ -1,0 +1,62 @@
+services:
+  worker:
+    build: .
+    container_name: hga-worker
+    restart: always
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      - SQLITE_DB_PATH=/app/data/checkpoints.db
+      - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - OBSERVABILITY_DB_PATH=/app/data/observability.db
+      - PROFILE_STORE_PATH=/app/data/profile_store.json
+      - EPISODE_STORE_PATH=/app/data/episode_store.json
+      - SESSION_STORE_PATH=/app/data/session_store.json
+      - RAG_HF_HOME=/root/.cache/huggingface
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ./data:/app/data
+      - ./data/.hf_cache:/root/.cache/huggingface
+      - ./knowledge_base:/app/knowledge_base
+      - ./logs:/app/logs
+    command: ["python", "scripts/wechat_ilink_worker.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "from health_guide.integrations.local_logs import _ensure_init; _ensure_init()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  dispatcher:
+    build: .
+    container_name: hga-dispatcher
+    restart: always
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - worker
+    command: ["python", "scripts/reminder_dispatcher.py"]
+
+  backup:
+    build: .
+    container_name: hga-backup
+    restart: always
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      - SQLITE_DB_PATH=/app/data/checkpoints.db
+      - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - OBSERVABILITY_DB_PATH=/app/data/observability.db
+      - PROFILE_STORE_PATH=/app/data/profile_store.json
+      - EPISODE_STORE_PATH=/app/data/episode_store.json
+      - SESSION_STORE_PATH=/app/data/session_store.json
+      - BACKUP_DIR=/app/data/backups
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./knowledge_base:/app/knowledge_base
+    command: ["python", "scripts/backup_loop.py"]
