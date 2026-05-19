@@ -19,7 +19,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx, profile_anchor_terms
+from ..personalization import (
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    check_decision_points_landed,
+    format_decision_points_for_prompt,
+    profile_anchor_terms,
+)
 from ..tools import retrieve_safety_guidelines
 from .doctor import ensure_doctor_disclaimer
 from .dispatcher import REPLAN_CAP
@@ -112,9 +118,13 @@ _CRITIC_SYSTEM = """\
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【P3 · 个性化落地缺失（REVISE）】
 若用户画像中存在有意义数据，且本轮用户问题是在索要健康建议/方案/计划/评估，
-草稿全文未自然引用任何画像锚点（年龄、体重、身高、BMI、伤病名、饮食禁忌、压力源、目标等）
-→ REVISE。修订时必须保留安全边界，并在前两句内自然引用至少一个画像锚点；
-若有伤病/过敏/慢病，必须点名并写出限制。纯寒暄、感谢、告别不触发 P3。
+必须按系统提供的“必须融入正文的个性化决策点”检查，而不是只看有没有提到画像。
+- 若系统提供 2 个及以上决策点，草稿至少要自然落地其中 2 个；
+- 若系统只提供 1 个决策点，草稿必须落地这 1 个；
+- “以你 80kg/30岁来看”然后给通用模板，不算落地；
+- 落地必须体现画像改变了具体数字、方案、动作限制、就医边界或压力/睡眠场景动作。
+未满足 → REVISE。修订时必须保留安全边界，把缺失决策点融入对应正文段落，不要作为开头清单照搬。
+纯寒暄、感谢、告别、空画像不触发 P3。危机/急症/处方场景优先安全，不要为了个性化添加无关营养或训练数字。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 判断克制原则：
@@ -218,9 +228,38 @@ def _profile_has_high_risk(profile: dict) -> bool:
     return bool(_CRITICAL_REVIEW_PATTERN.search(f"{injuries}\n{prefs}"))
 
 
-def _can_fast_pass(user_question: str, draft: str, profile: dict, executed: list[str]) -> bool:
+def _decision_points_for_roles(pctx: dict, user_question: str, executed: list[str]) -> list:
+    roles = [role for role in (executed or []) if role != "Orchestrator"] or ["Orchestrator"]
+    points = []
+    seen = set()
+    for role in roles:
+        for point in build_personalization_decision_points(pctx, user_question, role=role):
+            if point.id in seen:
+                continue
+            seen.add(point.id)
+            points.append(point)
+    return sorted(points, key=lambda p: (p.priority, p.domain, p.id))
+
+
+def _format_p3_check(check: dict) -> str:
+    if not check or not check.get("required_total"):
+        return "无本轮必检决策点。"
+    status = "通过" if check.get("satisfied") else "未通过"
+    missing = check.get("missing_instructions") or []
+    missing_text = "\n".join(f"- {item}" for item in missing[:4]) if missing else "（无）"
+    return (
+        f"P3 预检{status}：需落地 {check.get('required_to_land')} / {check.get('required_total')} 个决策点，"
+        f"当前落地 {check.get('landed_count')} 个。\n"
+        f"已落地ID：{', '.join(check.get('landed_ids') or []) or '（无）'}\n"
+        f"缺失或未充分落地的决策点：\n{missing_text}"
+    )
+
+
+def _can_fast_pass(user_question: str, draft: str, profile: dict, executed: list[str], p3_check: dict) -> bool:
     """Skip the expensive LLM critic for straightforward low-risk answers."""
     if not draft or not executed:
+        return False
+    if p3_check and not p3_check.get("satisfied", True):
         return False
     stats = profile.get("physical_stats") or {}
     injuries_text = " ".join(str(x) for x in (stats.get("injuries") or []))
@@ -267,7 +306,12 @@ def critic_node(state):
     can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
     doctor_executed = "Doctor" in executed
 
-    if _can_fast_pass(user_question, draft, profile, executed):
+    decision_points = _decision_points_for_roles(pctx, user_question, executed)
+    decision_section = format_decision_points_for_prompt(decision_points)
+    p3_check = check_decision_points_landed(draft, decision_points)
+    p3_check_text = _format_p3_check(p3_check)
+
+    if _can_fast_pass(user_question, draft, profile, executed, p3_check):
         try:
             append_episode(
                 user_id=user_id,
@@ -315,6 +359,8 @@ def critic_node(state):
         f"用户卡片（与专家看到的个性化上下文一致）：\n{user_card}\n\n"
         f"用户画像原始 JSON（安全审查用）：\n{profile_text}\n\n"
         f"可用于 P3 个性化校验的画像锚点：{anchors or '（无）'}\n\n"
+        f"{decision_section or '【必须融入正文的个性化决策点】\n（无）\n'}\n"
+        f"确定性 P3 预检结果：\n{p3_check_text}\n\n"
         f"用户本轮问题：\n{user_question}\n\n"
         f"本轮已派出专家：{', '.join(executed) if executed else '（无）'}\n"
         f"尚未派出但可补叫：{', '.join(unexecuted) if unexecuted else '（无可补叫）'}\n"

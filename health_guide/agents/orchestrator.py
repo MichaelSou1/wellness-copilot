@@ -16,7 +16,13 @@ from langchain_core.tools import tool
 
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
-from ..personalization import apply_personalization_boost, build_personalization_ctx
+from ..personalization import (
+    apply_personalization_boost,
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    check_decision_points_landed,
+    format_decision_points_for_prompt,
+)
 from ..profile_store import update_user_profile as store_update_user_profile
 from ..tools import (
     add_dietary_preference,
@@ -65,14 +71,14 @@ _MEDICATION_OR_PRESCRIPTION = re.compile(
 )
 
 _CARDIAC_EXERCISE_SIGNAL = re.compile(
-    r"(?:运动|训练|跑步|健身|锻炼).{0,20}(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心)"
-    r"|(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心).{0,20}(?:运动|训练|跑步|健身|锻炼)"
+    r"(?:运动|训练|跑步|健身|锻炼).{0,20}(?:胸闷|胸痛|胸口闷|胸口痛|胸口压迫|压迫感|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心)"
+    r"|(?:胸闷|胸痛|胸口闷|胸口痛|胸口压迫|压迫感|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心).{0,20}(?:运动|训练|跑步|健身|锻炼)"
     r"|运动后.{0,12}(?:十几分钟|10\s*分钟|很快|恢复正常)",
     re.IGNORECASE,
 )
 
 _PHYSICAL_DISCOMFORT_SIGNAL = re.compile(
-    r"头晕|晕晕|眩晕|晕厥|昏厥|恶心|呕吐|胸痛|胸闷|胸口痛|胸口闷|"
+    r"头晕|晕晕|眩晕|晕厥|昏厥|恶心|呕吐|胸痛|胸闷|胸口痛|胸口闷|胸口压迫|压迫感|"
     r"呼吸困难|喘不上|心悸|心慌|心跳异常|心率异常|发热|发烧|"
     r"剧痛|疼痛|持续疼|持续痛|刺痛|酸痛|肌肉痛|关节痛|膝盖痛|膝盖疼|腰痛|腰疼|"
     r"腿疼|腿痛|肌肉酸|腿酸|胳膊酸|肩酸|腰酸|酸到|酸得|"
@@ -211,6 +217,56 @@ def _doctor_used(executed: list[str] | None, tools: list[str] | None = None) -> 
     if "Doctor" in (executed or []):
         return True
     return any(str(t) == "consult_doctor" for t in (tools or []))
+
+
+def _personalization_points_for_roles(pctx: dict, user_question: str, roles: list[str]) -> list:
+    points = []
+    seen = set()
+    for role in roles or ["Orchestrator"]:
+        for point in build_personalization_decision_points(pctx, user_question, role=role):
+            if point.id in seen:
+                continue
+            seen.add(point.id)
+            points.append(point)
+    return sorted(points, key=lambda p: (p.priority, p.domain, p.id))
+
+
+def _needs_personalization_critic(pctx: dict, user_question: str, answer: str, roles: list[str]) -> bool:
+    points = _personalization_points_for_roles(pctx, user_question, roles)
+    return not check_decision_points_landed(answer, points).get("satisfied", True)
+
+
+def _roles_from_decision_points(pctx: dict, user_question: str) -> list[str]:
+    roles = []
+    for point in build_personalization_decision_points(pctx, user_question, role="Orchestrator"):
+        if point.domain in _EXPERT_RUNNERS and point.domain not in roles:
+            roles.append(point.domain)
+    return roles
+
+
+def _draft_for_critic_state(
+    answer: str,
+    *,
+    expert_responses: dict,
+    agent_notes: dict,
+    used_tools: list[str] | None = None,
+    retrieval_hits: int = 0,
+    executed: list[str],
+) -> dict:
+    return {
+        "draft_answer": answer,
+        "expert_responses": expert_responses,
+        "agent_notes": agent_notes,
+        "last_tools": used_tools or [],
+        "retrieval_hits": retrieval_hits,
+        "executed": executed,
+        "plan": [],
+        "next": [],
+        "replan_count": 0,
+        "replan_request": "",
+        "replan_context": "",
+        "orchestrator_decision": "CALLED_CHILD",
+    }
 
 
 def _physical_discomfort_roles(query: str) -> list[str]:
@@ -359,7 +415,22 @@ def _simple_direct_answer(state, user_question: str, pctx: dict) -> dict | None:
         answer = f"是啊，天气好很适合做一点低门槛活动：{anchor}出门轻松走 20-30 分钟，或者晒晒太阳、做 5 分钟拉伸就很好。"
     if not answer:
         return None
-    return _direct_state(state.get("profile_user_id", "default_user"), text, answer)
+    notes = {"Orchestrator": build_scratchpad_note("Orchestrator", answer)}
+    if _needs_personalization_critic(pctx, text, answer, ["Orchestrator"]):
+        return _draft_for_critic_state(
+            answer,
+            expert_responses={"Orchestrator": answer},
+            agent_notes=notes,
+            executed=["Orchestrator"],
+        )
+    return _direct_state(
+        state.get("profile_user_id", "default_user"),
+        text,
+        answer,
+        agent_notes=notes,
+        expert_responses={"Orchestrator": answer},
+        executed=["Orchestrator"],
+    )
 
 
 def _episode_section(episode_context: str) -> str:
@@ -422,10 +493,14 @@ def _orchestrator_tools(ctx: _ChildCallContext):
 
 def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_context: str = ""):
     user_card = pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        build_personalization_decision_points(pctx, child_ctx.user_question, role="Orchestrator")
+    )
     system_prompt = (
         "你是 Health Guide 的父 agent / orchestrator。你直接面向用户，并通过工具调用专业子 agent；"
         "不要把专家选择当成文本路由输出，也不要输出 PLAN、DIRECT 或专家名单。\n\n"
         f"{user_card}\n"
+        f"{decision_section}"
         f"{_episode_section(episode_context)}"
         "你可以直接处理寒暄、感谢、告别、能力介绍、澄清、画像/偏好记录、回答风格记录、"
         "通用健康常识和医疗边界说明。只有用户提供新信息时才调用结构化画像工具；"
@@ -481,17 +556,30 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
             answer = child_ctx.expert_responses.get("Doctor") or _medical_boundary_answer(user_question, pctx)
             answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
             answer = ensure_doctor_disclaimer(answer)
+            executed = ["Doctor"]
+            used = ["consult_doctor", *child_ctx.last_tools]
+            expert_responses = child_ctx.expert_responses or {"Doctor": answer}
+            agent_notes = child_ctx.agent_notes or {"Doctor": build_scratchpad_note("Doctor", answer)}
+            if _needs_personalization_critic(pctx, user_question, answer, executed):
+                return _draft_for_critic_state(
+                    answer,
+                    expert_responses=expert_responses,
+                    agent_notes=agent_notes,
+                    used_tools=used,
+                    retrieval_hits=child_ctx.retrieval_hits,
+                    executed=executed,
+                )
             return _direct_state(
                 user_id,
                 user_question,
                 answer,
                 verdict="REVISE_DIRECT",
-                used_tools=["consult_doctor", *child_ctx.last_tools],
+                used_tools=used,
                 retrieval_hits=child_ctx.retrieval_hits,
                 experts=["Doctor"],
-                expert_responses=child_ctx.expert_responses or {"Doctor": answer},
-                agent_notes=child_ctx.agent_notes or {"Doctor": build_scratchpad_note("Doctor", answer)},
-                executed=["Doctor"],
+                expert_responses=expert_responses,
+                agent_notes=agent_notes,
+                executed=executed,
             )
 
         agent = _build_parent_agent(pctx, child_ctx, episode_context)
@@ -595,6 +683,33 @@ def _run_parent_agent(state) -> dict:
             "orchestrator_decision": "CALLED_CHILD",
         }
 
+    forced_roles = _roles_from_decision_points(pctx, user_question)
+    if forced_roles:
+        child_ctx = _ChildCallContext(
+            user_id,
+            user_question,
+            pctx,
+            episode_context,
+            prior_agent_notes=dict(state.get("agent_notes") or {}),
+        )
+        used_tools: list[str] = []
+        for role in forced_roles:
+            _call_child_agent(role, child_ctx)
+            used_tools.append(_ROLE_TOOL_NAMES[role])
+        return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": used_tools + child_ctx.last_tools,
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
+        }
+
     try:
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
         child_ctx = _ChildCallContext(
@@ -648,7 +763,6 @@ def _run_parent_agent(state) -> dict:
 
         if child_ctx.executed:
             return {
-                "draft_answer": answer,
                 "expert_responses": child_ctx.expert_responses,
                 "agent_notes": child_ctx.agent_notes,
                 "last_tools": all_tools,
@@ -663,11 +777,21 @@ def _run_parent_agent(state) -> dict:
             }
 
         answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
+        notes = {"Orchestrator": build_scratchpad_note("Orchestrator", answer)}
+        if _needs_personalization_critic(pctx, user_question, answer, ["Orchestrator"]):
+            return _draft_for_critic_state(
+                answer,
+                expert_responses={"Orchestrator": answer},
+                agent_notes=notes,
+                used_tools=all_tools,
+                retrieval_hits=0,
+                executed=["Orchestrator"],
+            )
         _record_episode(user_id, user_question, answer, ["Orchestrator"])
         return {
             "messages": [AIMessage(content=answer)],
             "expert_responses": {"Orchestrator": answer},
-            "agent_notes": {"Orchestrator": build_scratchpad_note("Orchestrator", answer)},
+            "agent_notes": notes,
             "last_tools": all_tools,
             "retrieval_hits": 0,
             "executed": ["Orchestrator"],

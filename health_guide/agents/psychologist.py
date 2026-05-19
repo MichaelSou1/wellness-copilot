@@ -12,7 +12,11 @@ from ..tools import (
 )
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx
+from ..personalization import (
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    format_decision_points_for_prompt,
+)
 from ..detail import print_expert_end, print_expert_start, print_expert_trace
 from .fallbacks import expert_error_update
 from ._scratchpad import build_scratchpad_note
@@ -104,6 +108,7 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
     profile = pctx.get("raw_profile") or {}
     stats = profile.get("physical_stats") or {}
     mental = profile.get("mental_state") or {}
+    dietary = profile.get("dietary_context") or {}
     q = user_question or ""
     if _BODY_SYMPTOM_SIGNAL.search(q) and not _PSYCH_SIGNAL.search(q):
         return (
@@ -112,9 +117,14 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
             "在明确原因前先停止高强度训练，记录症状出现时间、持续多久、诱因和伴随表现。"
         )
     stress = [str(x).strip() for x in (mental.get("stress_sources") or []) if str(x).strip()]
+    sleep_quality = str(mental.get("sleep_quality") or "").strip()
     anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(stats.get("weight"), "kg"), _fmt(stats.get("height"), "cm")) if x]
     stress_text = "、".join(stress) if stress else "当前压力"
     anchor_text = f"结合你目前 {', '.join(anchors)}，" if anchors else ""
+    weight = _num(stats.get("weight"))
+    height = _num(stats.get("height"))
+    bmi = round(weight / ((height / 100) ** 2), 1) if weight and height else None
+    goal = str(dietary.get("goal") or "").strip()
 
     if _CRISIS_SIGNAL.search(q):
         return (
@@ -124,6 +134,19 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
             "第二，把可能伤害自己的物品和药物先交给别人保管，尽量不要一个人待着；"
             "第三，如果已经有伤害自己的冲动或具体计划，请马上拨打当地急救电话、危机热线，或直接去急诊。\n\n"
             "等你身边有人陪着、风险先降下来后，再谈今晚的睡眠和学业压力怎么拆。现在最重要的是安全，而不是把情绪靠意志压下去。"
+        )
+
+    if re.search(r"精力不足|恢复不过来|恢复差|疲惫|疲劳|很累|总觉得累", q) and (sleep_quality or stress):
+        sleep_text = f"睡眠质量记录为“{sleep_quality}”" if sleep_quality else "睡眠恢复不足"
+        share_line = "如果育儿压力占主要部分，今晚就争取把一次夜间照看或明早起床任务交给家人/搭档，换一段更完整的休息。"
+        return (
+            f"{anchor_text}{sleep_text}，压力源是 {stress_text}；这类精力不足先按恢复问题处理，不要简单归因成自律不够。\n\n"
+            "今晚先做三个低门槛动作：睡前30-60分钟停止工作消息和高刺激屏幕；写5分钟担忧/待办清单，"
+            "把工作和育儿事项约到明天固定窗口；再做10分钟慢呼吸或渐进式肌肉放松。\n\n"
+            "明天开始把恢复拆到白天：固定起床时间，上午晒10-15分钟自然光；每90分钟安排一次5分钟休息，"
+            "只做喝水、站起来走动或闭眼呼吸，不用追求一次彻底放松。"
+            f"{share_line}\n\n"
+            "先连续执行3天，再观察精力、睡眠和白天情绪；如果疲劳持续超过2周、明显影响工作生活，建议咨询医生或睡眠/心理专业人士。"
         )
 
     if re.search(r"睡不着|入睡|睡不好|失眠|躺下来脑子停不下来", q):
@@ -142,9 +165,15 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
                 "如果连续超过 2 周仍明显影响白天功能，建议看睡眠门诊或心理咨询。"
             )
 
-    if re.search(r"没.*运动.*欲望|没有运动.*欲望|下班就想躺|找回动力|没动力", q):
+    if re.search(r"没.*运动.*欲望|没有运动.*欲望|下班.*躺|找回动力|没动力|没有.*动力", q):
+        body_note = (
+            f"你现在 {weight:g}kg、BMI约{bmi}，即使目标是{goal}，这一周也先不要把运动当作补偿热量的工具；"
+            if weight and bmi and goal and goal != "健康"
+            else ""
+        )
         return (
             f"{anchor_text}这更像疲劳或倦怠后的动力下降，不要靠硬顶。你的压力源是 {stress_text}，先把目标降到足够低。\n\n"
+            f"{body_note}"
             "今天只做 5-10 分钟最小版本：换鞋下楼走一圈，或在家做 5 分钟拉伸；完成就算成功。"
             "接下来 7 天固定同一时间做这个小目标，周末再加到 15-20 分钟。"
             "如果同时有持续情绪低落、兴趣明显下降或睡眠/食欲大变，建议尽快寻求心理支持。"
@@ -158,7 +187,7 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
             "接下来每天练 1 次 10-15 分钟，不临时通宵堆准备。"
         )
 
-    if re.search(r"焦虑.*零食|零食.*焦虑|暴食|停不下来|情绪性进食|压力性进食", q):
+    if re.search(r"焦虑.*零食|零食.*焦虑|暴食|情绪性进食|压力性进食|吃.*停不下来|停不下来.*吃", q):
         return (
             f"{anchor_text}你的压力源是 {stress_text}，这更像焦虑触发的压力性进食，不要靠“忍住”解决。\n\n"
             "先做一个 5 分钟暂停流程：记录触发情境、情绪强度 1-10 分、真正想要的是休息还是安慰；"
@@ -177,9 +206,11 @@ def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
 
     if re.search(r"刷手机|手机.*停不下来|越刷越清醒|睡前习惯|屏幕", q):
         return (
-            f"{anchor_text}你记录的压力/睡眠线索是 {stress_text}，睡前刷手机停不下来时，关键是先降低启动难度。\n\n"
-            "今晚设置一个 30 分钟睡前流程：手机放到床外 2 米并开勿扰；先洗漱，再看 5-10 分钟纸质内容或听低刺激音频。"
-            "如果忍不住拿手机，就只允许站在床边看，不带回被窝。连续 7 天只追求流程启动，不追求完美入睡。"
+            f"{anchor_text}你记录的睡眠质量偏差，压力/触发源是 {stress_text}，睡前刷手机停不下来时，关键是把决策提前做好。\n\n"
+            "今晚开始用 60 分钟手机离床流程：手机放到床外 2 米并开启勿扰；洗漱后只选一个替代动作，"
+            "比如看 5-10 分钟纸质内容、热水澡、轻柔拉伸或呼吸练习。"
+            "如果忍不住拿手机，就只允许站在床边看，不带回被窝。\n\n"
+            "先连续 3 天只追求启动流程，不追求完美入睡；同时固定起床时间，帮助睡眠节律重新稳定。"
         )
 
     if re.search(r"熬夜|睡眠不足|没睡好", q):
@@ -202,12 +233,16 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
-def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
+def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Psychologist") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        build_personalization_decision_points(pctx, user_question, role="Psychologist")
+    )
     system_prompt = (
         "你是心理疗愈师，专注压力、焦虑、情绪调节、倦怠、动力下降、压力性进食、睡前心理放松和心理安全边界。\n\n"
         f"{user_card}\n"
+        f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
         "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
@@ -265,6 +300,7 @@ def run_psychologist(
             pctx,
             peer_notes_text,
             episode_context,
+            user_question,
         )
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
 

@@ -7,7 +7,11 @@ from langchain_core.messages import HumanMessage
 from ..detail import print_expert_end, print_expert_start, print_expert_trace
 from ..llm import extract_text_content, llm
 from ..mcp_client import MCP_REGISTRY
-from ..personalization import build_personalization_ctx
+from ..personalization import (
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    format_decision_points_for_prompt,
+)
 from ..tools import retrieve_doctor_knowledge
 from ..utils import create_agent
 from ._scratchpad import build_scratchpad_note
@@ -101,6 +105,23 @@ def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
         if n > 0:
             anchors.append(f"{int(n) if n.is_integer() else round(n, 1)}{suffix}")
     anchor_text = f"结合你目前 {', '.join(anchors)}，" if anchors else ""
+    try:
+        weight_n = float(weight or 0)
+        height_n = float(height or 0)
+    except (TypeError, ValueError):
+        weight_n = height_n = 0
+    bmi = round(weight_n / ((height_n / 100) ** 2), 1) if weight_n > 0 and height_n > 0 else None
+
+    if re.search(r"糖尿病|血糖", q, re.IGNORECASE) and re.search(r"HIIT|高强度|间歇", q, re.IGNORECASE):
+        bmi_text = f"，BMI约{bmi}" if bmi else ""
+        return ensure_doctor_disclaimer(
+            f"{anchor_text}你有糖尿病，又想直接开始30分钟HIIT，这不建议直接做。"
+            f"以你目前体重 {weight_n:g}kg{bmi_text} 来看，突然上高强度间歇会同时增加血糖波动、低血糖和心血管负担风险。\n\n"
+            "开始前先让医生评估运动许可、血糖控制、用药时机、并发症、足部保护和心血管风险。"
+            "运动前后都要监测血糖，并准备可快速处理低血糖的食物。\n\n"
+            "更稳的起点是每周3-4次、每次20-30分钟低到中等强度运动，例如快走、游泳或低阻力固定单车；"
+            "等血糖反应稳定且医生许可后，再逐步尝试更短的间歇训练，而不是一开始就做30分钟HIIT。"
+        )
 
     if re.search(r"血压.*(?:大重量|深蹲|增肌|力量)|(?:大重量|深蹲|增肌|力量).*血压", q, re.IGNORECASE):
         return ensure_doctor_disclaimer(
@@ -163,9 +184,12 @@ def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
     return ""
 
 
-def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
+def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Doctor") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        build_personalization_decision_points(pctx, user_question, role="Doctor")
+    )
     mcp_tools = MCP_REGISTRY.get_tools("medical")
     medical_tools = [retrieve_doctor_knowledge, *mcp_tools]
     mcp_hint = (
@@ -178,6 +202,7 @@ def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str =
     system_prompt = (
         "你是医学顾问 Doctor 子 agent，负责提供一般医学信息、症状风险分层、就医建议和就诊前准备建议。\n\n"
         f"{user_card}\n"
+        f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
         "用户卡片就是本轮可用画像；不要为了读取画像而调用工具。"
@@ -214,7 +239,7 @@ def run_doctor(
                 "retrieval_hits": 0,
             }
 
-        agent = _build_doctor_agent(pctx, peer_notes_text, episode_context)
+        agent = _build_doctor_agent(pctx, peer_notes_text, episode_context, user_question)
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
 
         print_expert_trace("Doctor", result["messages"])

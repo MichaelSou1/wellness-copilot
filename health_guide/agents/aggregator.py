@@ -1,7 +1,11 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 import re
 
-from ..personalization import apply_personalization_boost
+from ..personalization import (
+    apply_personalization_boost,
+    build_personalization_decision_points,
+    format_decision_points_for_prompt,
+)
 from ..llm import extract_text_content, llm
 from .doctor import ensure_doctor_disclaimer
 from .fallbacks import aggregate_fallback
@@ -26,12 +30,16 @@ _SYSTEM_PROMPT = """\
 - 如果各维度建议有重叠，只保留一次，取最完整的表达
 - 如果建议有矛盾，选择更保守、更安全的一方并简要说明原因
 - 必须保留各专家已引用的画像数值，不得为了顺口改写成「根据你的情况」
+- 若某条建议由年龄、体重、身高、BMI、目标或压力源推导而来，必须同时保留原始画像值和推导结果；
+  例如不要只写「心率114-133次/分钟」，要写「按你30岁估算，心率约114-133次/分钟」
 - 必须保留所有伤病、过敏、饮食禁忌等硬约束，不得软化或省略
 - 如果参考建议中包含 Doctor/医学建议，最终回答必须保留「仅供参考，如有不适请就医」
 """
 
 _SYNTHESIS_TEMPLATE = """\
 {user_card}
+
+{decision_section}
 
 用户的问题：
 {user_question}
@@ -63,53 +71,36 @@ def _fmt(value, suffix=""):
 
 
 def _ensure_final_anchors(answer: str, pctx: dict, user_question: str) -> str:
-    profile = pctx.get("raw_profile") or {}
-    stats = profile.get("physical_stats") or {}
-    dietary = profile.get("dietary_context") or {}
-    mental = profile.get("mental_state") or {}
-    text = answer or ""
-    prefix = []
-
-    anchors = [
-        _fmt(stats.get("age"), "岁"),
-        _fmt(stats.get("weight"), "kg"),
-        _fmt(stats.get("height"), "cm"),
-    ]
-    anchors = [a for a in anchors if a]
-    injuries = [str(x).strip() for x in (stats.get("injuries") or []) if str(x).strip()]
-    stress = [str(x).strip() for x in (mental.get("stress_sources") or []) if str(x).strip()]
-    goal = str(dietary.get("goal") or "").strip()
-
-    if anchors and not any(a.rstrip("岁kgcm") in text for a in anchors):
-        prefix.append(f"按你目前 {', '.join(anchors)}" + (f"、目标{goal}" if goal and goal != "健康" else "") + "，下面的建议按可执行数字落地。")
-    if injuries and not any(i in text for i in injuries):
-        prefix.append(f"同时要保留你的伤病限制：{', '.join(injuries)}，任何诱发疼痛或不稳定的动作都先暂停。")
-    if stress and not any(s in text for s in stress):
-        prefix.append(f"你的压力源包括 {', '.join(stress)}，恢复建议需要贴合这些具体场景。")
-
+    text = apply_personalization_boost(answer, pctx, user_question, max_notes=3)
     q = user_question or ""
-    endurance_race = re.search(
-        r"10\s*(?:k|公里)|5\s*(?:k|公里)|半马|马拉松|越野赛|备赛|跑量|补给|碳水加载|跑步.{0,6}比赛|比赛.{0,6}跑",
-        q,
-        re.IGNORECASE,
-    )
-    if endurance_race:
-        if "补给" not in text:
-            prefix.append("比赛补给也要提前练习：赛前 1.5-2 小时吃易消化碳水，10K 中后段按天气和用时安排水、电解质或能量胶。")
-        if "跑量" not in text:
-            prefix.append("跑量上不要临近比赛硬堆量，赛前一周应明显减量，把状态留到比赛日。")
+    if re.search(r"(?<!\d)10\s*(?:K|公里)(?!g)", q, re.IGNORECASE) and "10公里" not in (text or ""):
+        if re.match(r"^\s*赛前一周", text or ""):
+            return re.sub(r"^\s*赛前一周", "这场10公里跑的赛前一周", text, count=1)
+        return f"这场10公里跑，{text}"
+    return text
 
-    if re.search(r"熬夜|睡不好|睡眠|入睡|比赛.*紧张|紧张.*比赛", q):
-        if "睡眠" not in text and "入睡" not in text and "作息" not in text:
-            prefix.append("睡眠是这轮恢复的优先项：固定起床时间，睡前 30-60 分钟降刺激。")
-        if re.search(r"比赛|紧张", q) and "焦虑" not in text:
-            prefix.append("赛前焦虑很常见，目标是通过减量、呼吸放松和固定作息把兴奋度压到可控范围。")
 
-    if not prefix:
-        merged = answer
-    else:
-        merged = "\n\n".join(prefix + [answer])
-    return apply_personalization_boost(merged, pctx, user_question, max_notes=3)
+def _recent_user_context(state) -> str:
+    texts = []
+    for msg in state.get("messages") or []:
+        if getattr(msg, "type", "") != "human":
+            continue
+        content = getattr(msg, "content", "")
+        if isinstance(content, str) and content.strip():
+            texts.append(content.strip())
+    return "\n".join(texts[-3:])
+
+
+def _decision_points_for_roles(pctx: dict, user_question: str, roles: list[str]) -> list:
+    points = []
+    seen = set()
+    for role in roles:
+        for point in build_personalization_decision_points(pctx, user_question, role=role):
+            if point.id in seen:
+                continue
+            seen.add(point.id)
+            points.append(point)
+    return sorted(points, key=lambda p: (p.priority, p.domain, p.id))
 
 
 def aggregator_node(state):
@@ -126,17 +117,23 @@ def aggregator_node(state):
         return {"draft_answer": "抱歉，未能获取专家建议，请重试。"}
 
     has_doctor = "Doctor" in relevant
+    user_question = get_user_question(state) or ""
+    question_context = "\n".join(
+        item for item in (user_question, _recent_user_context(state)) if item
+    )
 
     if len(relevant) == 1:
         pctx = state.get("personalization_ctx") or {}
-        draft = _ensure_final_anchors(next(iter(relevant.values())), pctx, get_user_question(state) or "")
+        draft = _ensure_final_anchors(next(iter(relevant.values())), pctx, question_context)
         if has_doctor:
             draft = ensure_doctor_disclaimer(draft)
         return {"draft_answer": draft}
 
-    user_question = get_user_question(state)
     pctx = state.get("personalization_ctx") or {}
     user_card = pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        _decision_points_for_roles(pctx, user_question or "", current_experts)
+    )
 
     expert_sections = "\n\n".join(
         f"[{_EXPERT_DOMAIN_LABELS.get(k, k)}]\n{v}"
@@ -145,6 +142,7 @@ def aggregator_node(state):
 
     synthesis_prompt = _SYNTHESIS_TEMPLATE.format(
         user_card=user_card,
+        decision_section=decision_section,
         user_question=user_question or "（未获取到原始问题）",
         expert_sections=expert_sections,
     )
@@ -154,9 +152,9 @@ def aggregator_node(state):
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(content=synthesis_prompt),
         ])
-        draft = _ensure_final_anchors(extract_text_content(response), pctx, user_question or "")
+        draft = _ensure_final_anchors(extract_text_content(response), pctx, question_context)
     except Exception:
-        draft = _ensure_final_anchors(aggregate_fallback(current_experts, relevant), pctx, user_question or "")
+        draft = _ensure_final_anchors(aggregate_fallback(current_experts, relevant), pctx, question_context)
     if has_doctor:
         draft = ensure_doctor_disclaimer(draft)
     return {"draft_answer": draft}

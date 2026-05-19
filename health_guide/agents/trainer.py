@@ -24,7 +24,11 @@ from ..tools import (
 )
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx
+from ..personalization import (
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    format_decision_points_for_prompt,
+)
 from ..detail import print_expert_end, print_expert_start, print_expert_trace
 from .fallbacks import expert_error_update
 from ._scratchpad import build_scratchpad_note
@@ -118,6 +122,7 @@ def _specific_knee_rehab_answer(pctx: dict, user_question: str) -> str:
     q = user_question or ""
     anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(stats.get("weight"), "kg"), _fmt(stats.get("height"), "cm")) if x]
     anchor_text = f"以你目前 {', '.join(anchors)}，且记录有 {injury_text} 来看，" if anchors else f"考虑到你记录有 {injury_text}，"
+    weight_text = _fmt(stats.get("weight"), "kg")
 
     is_training_query = re.search(r"练腿|腿部|深蹲|蹲|负重|跑步|训练|运动|计划|走|步数|开始做", q)
     if not injuries or not is_training_query:
@@ -139,11 +144,12 @@ def _specific_knee_rehab_answer(pctx: dict, user_question: str) -> str:
         if has_six_month:
             return (
                 f"{anchor_text}ACL 术后约 6 个月通常可能进入强化阶段，但能不能开始深蹲必须由运动医学医生或理疗师评估，"
-                "不能只凭自我感觉决定。\n\n"
+                f"不能只凭自我感觉决定；{f'按你目前 {weight_text} 的体重负荷，' if weight_text else ''}"
+                "深蹲一开始更不能直接上负重或深幅度。\n\n"
                 "常见门槛包括：膝关节伸直可到 0 度、屈曲至少约 120 度且无痛，单腿蹲 30 度时膝盖不内扣不晃，"
-                "患侧股四头肌力量达到健侧约 80% 以上，训练后没有肿胀或不稳感。\n\n"
-                "在评估前，先继续做坐姿伸膝、闭链等长收缩、直腿抬高和低阻力固定单车等低风险动作；"
-                "若评估通过，也应从徒手小范围、低次数开始，而不是直接上负重或深幅度。"
+                "患侧股四头肌力量达到健侧约 80% 以上，训练后 24 小时没有明显肿胀、疼痛反跳或不稳感。\n\n"
+                "在评估前，先继续做股四头肌等长收缩、闭链等长收缩、直腿抬高和低阻力固定单车等低风险动作；"
+                "若评估通过，也应先从徒手小范围或坐站练习 2-3 组x6-8 次开始，而不是直接上负重或深幅度。"
             )
         return (
             f"{anchor_text}现阶段应避免自行做深蹲、跳绳、跳箱、冲刺或急停变向。"
@@ -164,9 +170,16 @@ def _deterministic_trainer_answer(pctx: dict, user_question: str) -> str:
     if knee:
         return knee
 
+    goal = _goal(profile)
     anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(stats.get("weight"), "kg"), _fmt(stats.get("height"), "cm")) if x]
+    if goal and goal != "健康":
+        anchors.append(f"目标{goal}")
     anchor_text = f"以你目前 {', '.join(anchors)} 来看，" if anchors else ""
     injuries = [str(x).strip() for x in (stats.get("injuries") or []) if str(x).strip()]
+    age = _num(stats.get("age"))
+    weight = _num(stats.get("weight"))
+    height = _num(stats.get("height"))
+    bmi = round(weight / ((height / 100) ** 2), 1) if weight and height else None
 
     if injuries and re.search(r"减脂|饮食方案|每日饮食|减脂餐", q):
         injury_text = "、".join(injuries)
@@ -204,7 +217,8 @@ def _deterministic_trainer_answer(pctx: dict, user_question: str) -> str:
         return (
             f"{anchor_text}记录里有 {injury_text}，下周练胸不要从大重量或极限重量开始，先让理疗师评估肩关节活动度和外旋力量。\n\n"
             "可做的低风险起点：弹力带外旋 2-3 组x12-15 次、Y-T-W 2 组x8-12 次、墙壁俯卧撑 2-3 组x8-12 次。"
-            "先避免杠铃卧推、双杠臂屈伸、过头推举和任何疼痛范围内的推举动作；连续 24 小时无痛无酸胀反跳后，再考虑逐步增加阻力。"
+            "如果墙壁俯卧撑连续 24 小时无痛无酸胀反跳，再尝试上斜俯卧撑 2 组x6-10 次，并加入肩胛控制训练。"
+            "先避免杠铃卧推、双杠臂屈伸、过头推举和任何疼痛范围内的推举动作；恢复期先追求肩胛稳定和动作质量，而不是为增肌目标急着加重量。"
         )
 
     if injuries and any("膝关节炎" in injury or "膝" in injury for injury in injuries) and re.search(r"走多少步|多少步|步数", q):
@@ -230,7 +244,10 @@ def _deterministic_trainer_answer(pctx: dict, user_question: str) -> str:
             "徒手深蹲替代为坐站练习、弹力带划船等；任何头晕、心悸或动作变形都立即停止。"
         )
 
-    if re.search(r"10\s*(?:K|公里)|5\s*(?:K|公里)|半马|马拉松|跑步.*比赛|比赛.*跑", q, re.IGNORECASE):
+    if (
+        re.search(r"10\s*(?:K|公里)|5\s*(?:K|公里)|半马|马拉松|跑步.*比赛|比赛.*跑", q, re.IGNORECASE)
+        and not re.search(r"从零开始跑|跑5公里|5\s*公里|4周入门|跑步入门", q, re.IGNORECASE)
+    ):
         return (
             f"{anchor_text}下个月 10K 比赛不要再硬堆跑量，重点是稳定节奏和赛前减量。"
             "可以按每周 3-4 跑安排：1 次轻松跑 4-6km、1 次配速/节奏跑 3-5km、1 次长距离 7-9km，"
@@ -240,8 +257,15 @@ def _deterministic_trainer_answer(pctx: dict, user_question: str) -> str:
         )
 
     if re.search(r"新手|没有经验|每周.*几次|健身房几次", q):
+        body_line = (
+            f"按 {weight:g}kg、BMI约{bmi} 的起点，前4周不需要追大重量；外负荷先从自重、空杆或约体重10%-20%的轻负荷开始。"
+            if weight and bmi
+            else "前4周不需要追大重量；外负荷先从自重、空杆或能稳定完成动作的轻负荷开始。"
+        )
         return (
             f"{anchor_text}纯新手建议每周 2-3 天去健身房，每次 45-60 分钟，两次训练之间至少隔 1 天。"
+            "这个恢复间隔要保留，避免一开始把疲劳堆太高。"
+            f"{body_line}\n\n"
             "前 4-6 周先做全身训练：推、拉、蹲/髋、核心各 2-3 组，每组 8-12 次，RPE 6 左右。"
             "先从轻重量和稳定节奏开始，把动作做稳，再逐步加重量或加到每周 3-4 天。"
         )
@@ -256,13 +280,32 @@ def _deterministic_trainer_answer(pctx: dict, user_question: str) -> str:
         )
 
     if re.search(r"从零开始跑|跑5公里|5\s*公里|4周入门|跑步入门", q):
+        body_line = (
+            f"按 {weight:g}kg、BMI约{bmi} 的起点，先把单次跑走控制在20-30分钟、每周累计约60-90分钟，"
+            "比一上来追配速或距离更稳。"
+            if weight and bmi
+            else "先把单次跑走控制在20-30分钟、每周累计约60-90分钟，比一上来追配速或距离更稳。"
+        )
+        intensity_line = ""
+        if age:
+            max_hr = round(220 - age)
+            low_hr = round(max_hr * 0.6)
+            high_hr = round(max_hr * 0.7)
+            intensity_line = (
+                f"按 {age:g}岁粗估最大心率约 {max_hr} 次/分钟，入门阶段先把轻松跑放在约 {low_hr}-{high_hr} 次/分钟，"
+                "或用能完整说话的 RPE 4-5 校准。"
+            )
+        else:
+            intensity_line = "强度保持能完整说话的 RPE 4-5。"
         return (
             f"{anchor_text}从零开始跑 5公里，4 周只能作为保守入门，不强求第 4 周一定跑完 5km；核心是跑走结合。\n\n"
+            f"{body_line}\n"
             "第1周：每周3次，快走5分钟热身后，慢跑1分钟+快走2分钟，循环8次。\n"
             "第2周：慢跑2分钟+快走2分钟，循环7-8次。\n"
             "第3周：慢跑3分钟+快走2分钟，循环6次。\n"
             "第4周：慢跑5分钟+快走2分钟，循环4-5次；状态好再做一次 20-30 分钟连续轻松跑。\n\n"
-            "强度保持能完整说话的 RPE 4-5。任何膝/踝疼痛超过 24 小时，就退回上一周，不用硬凑 5公里。"
+            f"{intensity_line}每周再配合2次15-20分钟轻力量或灵活性训练。"
+            "任何膝/踝疼痛超过 24 小时，就退回上一周，不用硬凑 5公里。"
         )
 
     if re.search(r"腿酸|酸痛|DOMS|走路.*困难|练腿.*酸", q, re.IGNORECASE):
@@ -321,9 +364,12 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
-def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
+def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Trainer") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        build_personalization_decision_points(pctx, user_question, role="Trainer")
+    )
     wger_tools = MCP_REGISTRY.get_tools("wger")
     mcp_hint = (
         "如需查询具体动作百科（标准动作要领、目标肌群、所需器械），可调用 wger MCP 工具："
@@ -334,6 +380,7 @@ def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str 
     system_prompt = (
         "你是力量训练教练。\n\n"
         f"{user_card}\n"
+        f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
         "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
@@ -365,7 +412,7 @@ def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str 
         "半月板损伤场景优先给直腿抬高、轻阻力坐姿伸膝、侧卧蚌式开合、游泳或固定单车低阻力；"
         "不得给靠墙静蹲、深屈膝、跑步、冲刺、跳跃或扭转动作。"
         "ACL 术后 6 个月不是一律禁止所有蹲类，而是必须由医生/理疗师评估后分阶段进入强化；"
-        "回答需写出屈伸活动度、单腿控制、股四头肌力量等门槛，并给固定单车低阻力、坐姿伸膝、闭链等长收缩等替代。\n"
+        "回答需写出屈伸活动度、单腿控制、股四头肌力量、24小时无明显肿胀疼痛等门槛，并给固定单车低阻力、股四头肌等长收缩、闭链等长收缩等替代。\n"
         "4. 至少包含 2 条由画像具体数值（体重/年龄/伤病/目标）推导出的可执行数字。"
     )
     return create_agent(llm, list(_TRAINER_TOOLS) + wger_tools, system_prompt)
@@ -393,7 +440,7 @@ def run_trainer(
                 "retrieval_hits": 0,
             }
 
-        agent = _build_trainer_agent(pctx, peer_notes_text, episode_context)
+        agent = _build_trainer_agent(pctx, peer_notes_text, episode_context, user_question)
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
 
         print_expert_trace("Trainer", result["messages"])

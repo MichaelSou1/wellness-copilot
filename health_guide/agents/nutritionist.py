@@ -14,7 +14,11 @@ from ..tools import (
 )
 from ..utils import create_agent
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx
+from ..personalization import (
+    build_personalization_ctx,
+    build_personalization_decision_points,
+    format_decision_points_for_prompt,
+)
 from ..detail import print_expert_end, print_expert_start, print_expert_trace
 from .fallbacks import expert_error_update
 from ._scratchpad import build_scratchpad_note
@@ -95,6 +99,19 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
     pref_text = " ".join(prefs)
     anchor_text = f"以你目前 {', '.join(anchors)}" + (f"、目标{goal}" if goal and goal != "健康" else "") + "来看，" if anchors else ""
 
+    if re.search(r"(?:只吃|每天).*?\d{3,4}\s*kcal|800\s*kcal|极低热量|低热量.*快速|快速减(?:肥|脂)", q, re.IGNORECASE):
+        protein_line = ""
+        if weight:
+            protein_line = f"蛋白质也要按 {weight:g}kg 估算至少约 {round(weight * 1.6)}-{round(weight * 2.0)}g/天来尽量保肌，800kcal 很难同时做到这一点。"
+        return (
+            f"{anchor_text}不建议自行执行每天 800kcal 这类极低热量方案。"
+            "它通常低于安全下限，容易带来营养不足、肌肉流失、代谢下降、头晕乏力，女性还可能出现月经紊乱，"
+            "也会增加胆结石等风险。\n\n"
+            "更稳妥的减脂起点是先估算 TDEE，再从 TDEE 下调 300-500 kcal/天，而不是一下压到 800kcal。"
+            f"{protein_line}\n\n"
+            "如果确实因为医学原因需要极低热量饮食，必须在医生或临床营养师监督下执行，并定期监测症状、血压/血糖和营养状态。"
+        )
+
     if re.search(r"花生.*过敏|过敏.*花生", q + " " + pref_text) and re.search(r"零食|高蛋白|加餐|推荐", q):
         protein_line = ""
         if weight:
@@ -151,6 +168,23 @@ def _deterministic_nutrition_answer(pctx: dict, user_question: str) -> str:
             f"更好执行的分法是 4 餐平均，每餐约 {per_meal_low}-{per_meal_high}克蛋白质；"
             "优先选鸡胸/鱼虾/蛋/低脂奶/豆腐等高质量来源。减脂时热量赤字控制在 300-500 kcal/天，"
             "不要靠过低热量硬压体重。"
+        )
+
+    if re.search(r"碳水|米饭|低碳|戒", q):
+        height = _num(stats.get("height"))
+        bmi = round(weight / ((height / 100) ** 2), 1) if weight and height else None
+        bmi_text = f"、BMI约{bmi}" if bmi else ""
+        protein_line = (
+            f"同时按 {weight:g}kg 估算，减脂期蛋白质可放在 {round(weight * 1.6)}-{round(weight * 2.0)}g/天，帮助保肌。"
+            if weight
+            else ""
+        )
+        return (
+            f"{anchor_text}减脂不需要把碳水都戒掉，也不用因为吃米饭就担心一定瘦不下来。"
+            f"以你目前 {weight:g}kg{bmi_text} 来看，关键是把总热量赤字控制在 300-500 kcal/天，并调份量。\n\n"
+            "更稳的做法是减少含糖饮料、甜点和大量精制主食，但保留燕麦、糙米、红薯、土豆、杂粮饭或适量米饭这类碳水；"
+            "训练前后尤其要留一点主食作为燃料。长期极低碳水容易影响训练表现、情绪和坚持度。"
+            f"{protein_line}"
         )
 
     if re.search(r"训练前|训练后|运动前|运动后", q):
@@ -234,9 +268,12 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
-def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
+def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Nutritionist") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    decision_section = format_decision_points_for_prompt(
+        build_personalization_decision_points(pctx, user_question, role="Nutritionist")
+    )
     usda_tools = MCP_REGISTRY.get_tools("usda")
     mcp_hint = (
         "如需精确食物宏量素（蛋白/碳水/脂肪/热量/纤维），可调用 USDA FoodData Central MCP 的 "
@@ -247,6 +284,7 @@ def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context:
     system_prompt = (
         "你是膳食营养师。\n\n"
         f"{user_card}\n"
+        f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
         "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
@@ -302,6 +340,7 @@ def run_nutritionist(
             pctx,
             peer_notes_text,
             episode_context,
+            user_question,
         )
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
 
