@@ -39,7 +39,7 @@ def main() -> int:
     _print_header("config flags")
     print(f"MCP_TRAINER_ENABLED      = {config.MCP_TRAINER_ENABLED}")
     print(f"MCP_NUTRITIONIST_ENABLED = {config.MCP_NUTRITIONIST_ENABLED}")
-    print(f"MCP_CRITIC_ENABLED       = {config.MCP_CRITIC_ENABLED}")
+    print(f"MCP_DOCTOR_ENABLED       = {config.MCP_DOCTOR_ENABLED}")
     print(f"USDA_API_KEY set         = {bool(config.USDA_API_KEY)}")
     print(f"MCP_USDA_SCRIPT_PATH     = {config.MCP_USDA_SCRIPT_PATH or '(unset)'}")
 
@@ -47,7 +47,7 @@ def main() -> int:
         [
             config.MCP_TRAINER_ENABLED,
             config.MCP_NUTRITIONIST_ENABLED,
-            config.MCP_CRITIC_ENABLED,
+            config.MCP_DOCTOR_ENABLED,
         ]
     ):
         print(

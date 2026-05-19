@@ -17,12 +17,13 @@ in its own output.
 Cap is enforced by Dispatcher, not here — this judge only emits a request.
 """
 from langchain_core.messages import HumanMessage, SystemMessage
+import re
 
 from ..llm import extract_text_content, llm
 from .query_rewriter import get_user_question
 
 
-_VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness"}
+_VALID_EXPERTS = {"Trainer", "Nutritionist", "Psychologist", "Doctor"}
 
 # Cap mirrors dispatcher.REPLAN_CAP; once we've spent all replan slots there
 # is nothing more the judge can usefully ask for. Avoids a Dispatcher↔Judge
@@ -32,7 +33,23 @@ _REPLAN_CAP = 2
 _EXPERT_LABELS = {
     "Trainer": "训练教练（运动/动作/恢复）",
     "Nutritionist": "营养师（饮食/热量/营养素）",
-    "Wellness": "身心康复师（睡眠/压力/情绪/恢复节奏）",
+    "Psychologist": "心理疗愈师（压力/焦虑/情绪/倦怠/心理安全）",
+    "Doctor": "医学顾问（症状风险/就医/用药边界）",
+}
+
+_CROSS_DOMAIN_SIGNAL = re.compile(
+    r"吃.*练|练.*吃|饮食.*训练|训练.*饮食|运动.*饮食|饮食.*运动|"
+    r"睡眠.*饮食|饮食.*睡眠|失眠.*饮食|压力.*吃|吃.*恢复|练.*恢复|"
+    r"10\s*(?:K|公里)|5\s*(?:K|公里)|半马|马拉松|补给|碳水加载|"
+    r"伤病.*饮食|饮食.*伤病|康复.*饮食|饮食.*康复",
+    re.IGNORECASE,
+)
+
+_SIMPLE_SINGLE_DOMAIN = {
+    "Trainer": re.compile(r"TDEE|BMR|基础代谢|每日所需热量|深蹲|开始做.*蹲|练胸|走多少步|ACL|半月板|肩袖", re.IGNORECASE),
+    "Nutritionist": re.compile(r"肌酸|蛋白|高蛋白早餐|食谱|早餐|午餐|晚餐|训练前|训练后|运动前|运动后", re.IGNORECASE),
+    "Psychologist": re.compile(r"睡不着|失眠|入睡|没动力|运动的欲望|焦虑|紧张|压力", re.IGNORECASE),
+    "Doctor": re.compile(r"胸痛|胸闷|呼吸困难|晕厥|心率|血压|血糖|诊断|是什么病|处方|剂量|用药", re.IGNORECASE),
 }
 
 
@@ -48,7 +65,8 @@ _JUDGE_SYSTEM = """\
 可选角色及其专长：
 - Trainer: 训练/动作/运动恢复
 - Nutritionist: 饮食/营养/热量
-- Wellness: 睡眠/压力/情绪/身心恢复
+- Psychologist: 心理疗愈，处理压力/焦虑/情绪/倦怠/压力性进食/心理安全，不处理身体症状
+- Doctor: 医学建议/症状风险/就医建议/用药与诊断边界
 
 输出格式（严格遵守）：
 - 不需要追加：仅一行 `VERDICT: CONTINUE`
@@ -114,6 +132,14 @@ def replan_judge_node(state):
         return {}
 
     user_question = get_user_question(state) or "（未获取到原始问题）"
+
+    if last_expert == "Nutritionist" and re.search(r"训练前|训练后|运动前|运动后", user_question):
+        return {}
+
+    if not _CROSS_DOMAIN_SIGNAL.search(user_question):
+        simple_pat = _SIMPLE_SINGLE_DOMAIN.get(last_expert)
+        if simple_pat and simple_pat.search(user_question):
+            return {}
 
     review_prompt = (
         f"用户问题：\n{user_question}\n\n"

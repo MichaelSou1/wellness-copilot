@@ -106,8 +106,8 @@ def _install_capture() -> None:
 
     _utils_mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
     # Also patch every expert module's already-imported reference to create_agent.
-    from health_guide.agents import trainer as _t, nutritionist as _n, wellness as _w, orchestrator as _o
-    for mod in (_t, _n, _w, _o):
+    from health_guide.agents import doctor as _d, trainer as _t, nutritionist as _n, psychologist as _p, orchestrator as _o
+    for mod in (_t, _n, _p, _d, _o):
         if hasattr(mod, "create_agent"):
             mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
 
@@ -138,7 +138,8 @@ def _guess_role_from_prompt(prompt: str) -> str | None:
     for role, tag in (
         ("Trainer", "训练教练"),
         ("Nutritionist", "营养师"),
-        ("Wellness", "身心"),
+        ("Psychologist", "心理疗愈师"),
+        ("Doctor", "医学顾问"),
         ("Orchestrator", "主 agent"),
     ):
         if tag in head:

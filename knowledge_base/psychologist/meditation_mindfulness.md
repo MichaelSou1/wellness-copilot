@@ -1,4 +1,4 @@
-# 冥想与正念（Wellness 私有）
+# 冥想与正念（Psychologist 私有）
 
 ## 概念澄清
 - 冥想（Meditation）：一类训练注意力与觉察的心理练习统称。

@@ -1,0 +1,244 @@
+"""Psychological-support expert — invoked as the Psychologist-compatible callable."""
+import os
+import re
+
+from langchain_core.messages import HumanMessage
+
+from ..tools import (
+    add_stress_source,
+    retrieve_psychologist_knowledge,
+    set_response_style,
+    update_user_profile,
+)
+from ..utils import create_agent
+from ..llm import extract_text_content, llm
+from ..personalization import build_personalization_ctx
+from ..detail import print_expert_end, print_expert_start, print_expert_trace
+from .fallbacks import expert_error_update
+from ._scratchpad import build_scratchpad_note
+
+
+_PSYCHOLOGIST_TOOLS = [
+    add_stress_source,
+    set_response_style,
+    update_user_profile,
+    retrieve_psychologist_knowledge,
+]
+
+_BODY_SYMPTOM_SIGNAL = re.compile(
+    r"头晕|晕晕|眩晕|晕厥|昏厥|恶心|呕吐|胸痛|胸闷|胸口痛|胸口闷|"
+    r"呼吸困难|喘不上|心悸|心慌|心跳异常|心率异常|发热|发烧|"
+    r"剧痛|疼痛|持续疼|持续痛|刺痛|酸痛|肌肉痛|关节痛|膝盖痛|膝盖疼|腰痛|腰疼|"
+    r"腿疼|腿痛|肌肉酸|腿酸|胳膊酸|肩酸|腰酸|酸到|酸得|"
+    r"(?:头|胸|腹|胃|腰|背|肩|颈|膝盖|膝关节|关节|脚踝|小腿|大腿|手腕|手臂|胳膊|肌肉).{0,4}(?:痛|疼)|"
+    r"(?:痛|疼).{0,4}(?:头|胸|腹|胃|腰|背|肩|颈|膝盖|膝关节|关节|脚踝|小腿|大腿|手腕|手臂|胳膊|肌肉)|"
+    r"肿胀|麻木|无力|抽筋|痉挛|拉伤",
+    re.IGNORECASE,
+)
+
+_PSYCH_SIGNAL = re.compile(
+    r"压力|焦虑|紧张|情绪|心情|低落|抑郁|恐慌|害怕|担心|内耗|反刍|"
+    r"脑子停不下来|倦怠|崩溃|没动力|动力下降|不想动|只想躺|压力性进食|暴食|自伤|轻生",
+    re.IGNORECASE,
+)
+
+
+def _num(value):
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _fmt(value, suffix=""):
+    n = _num(value)
+    if n is None:
+        return ""
+    return f"{int(n) if n.is_integer() else round(n, 1)}{suffix}"
+
+
+def _psychologist_profile_intro(pctx: dict, user_question: str, answer: str) -> str:
+    profile = pctx.get("raw_profile") or {}
+    stats = profile.get("physical_stats") or {}
+    mental = profile.get("mental_state") or {}
+    stress = [str(x).strip() for x in (mental.get("stress_sources") or []) if str(x).strip()]
+    anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(stats.get("weight"), "kg"), _fmt(stats.get("height"), "cm")) if x]
+    injuries = [str(x).strip() for x in (stats.get("injuries") or []) if str(x).strip()]
+    add = []
+    answer_text = answer or ""
+    question_text = user_question or ""
+
+    if stress and not any(s in answer_text for s in stress):
+        source = "、".join(stress)
+        add.append(
+            f"你现在的压力源主要是 {source}；先把问题拆成今晚能降刺激、明天能恢复一点节奏的两步。"
+        )
+    elif anchors and not any(a.rstrip("岁kgcm") in answer_text for a in anchors):
+        add.append(f"结合你目前 {', '.join(anchors)}，心理支持方案先从低门槛、可连续 7 天执行的动作开始。")
+    if injuries and not any(i in answer_text for i in injuries):
+        add.append(f"同时考虑到 {', '.join(injuries)}，心理放松练习不替代伤病或身体不适的医学评估。")
+
+    if re.search(r"睡不着|失眠|入睡|睡眠|睡不好", question_text + answer_text):
+        if not re.search(r"30|60|担忧|呼吸|放松", answer_text):
+            add.append("今晚先做 30 分钟降刺激：关屏、写 5 分钟担忧清单，再做 4-7-8 呼吸或渐进式肌肉放松 10 分钟。")
+    if re.search(r"没.*动力|不想.*动|躺着|倦怠", question_text):
+        if not re.search(r"5 ?分钟|10 ?分钟|降低门槛|小目标|最小", answer_text):
+            add.append("先把运动降到 5-10 分钟最小版本，例如出门走一圈或只做一组拉伸，完成就算达标。")
+    if re.search(r"比赛|紧张|焦虑", question_text + answer_text):
+        if "焦虑" not in answer_text:
+            add.append("赛前焦虑是常见反应，目标不是完全消除，而是把它降到不影响睡眠和执行计划的范围。")
+
+    if not add:
+        return answer
+    return "\n\n".join(add + [answer])
+
+
+def _deterministic_psychologist_answer(pctx: dict, user_question: str) -> str:
+    profile = pctx.get("raw_profile") or {}
+    stats = profile.get("physical_stats") or {}
+    mental = profile.get("mental_state") or {}
+    q = user_question or ""
+    if _BODY_SYMPTOM_SIGNAL.search(q) and not _PSYCH_SIGNAL.search(q):
+        return (
+            "这更像身体不适或训练负荷相关问题，不适合只按心理压力处理。"
+            "请优先让医学顾问/医生评估；如果和训练有关，也应由训练教练调整强度。"
+            "在明确原因前先停止高强度训练，记录症状出现时间、持续多久、诱因和伴随表现。"
+        )
+    stress = [str(x).strip() for x in (mental.get("stress_sources") or []) if str(x).strip()]
+    anchors = [x for x in (_fmt(stats.get("age"), "岁"), _fmt(stats.get("weight"), "kg"), _fmt(stats.get("height"), "cm")) if x]
+    stress_text = "、".join(stress) if stress else "当前压力"
+    anchor_text = f"结合你目前 {', '.join(anchors)}，" if anchors else ""
+
+    if re.search(r"睡不着|入睡|睡不好|失眠|躺下来脑子停不下来", q):
+        if re.search(r"比赛|紧张", q):
+            return (
+                f"{anchor_text}下周比赛带来的焦虑会直接影响入睡，重点不是临时加练，而是把兴奋度降下来。\n\n"
+                "赛前 7 天训练量减到平时约 50%-70%，睡前 60 分钟停止刷屏和看比赛信息；"
+                "睡前写 5 分钟“担忧清单”，把明天要处理的事约到固定 10 分钟窗口，再做 10 分钟呼吸放松或视觉化。"
+                "赛前一天不做剧烈训练，尽量保证 7-8 小时睡眠。"
+            )
+        if re.search(r"deadline|脑子停不下来|躺下来脑子停不下来", q, re.IGNORECASE):
+            return (
+                f"{anchor_text}你的压力源主要是 {stress_text}，晚上脑子停不下来时，先用一个固定睡前流程把工作/担忧从床上移出去。\n\n"
+                "今晚开始：睡前 60 分钟关掉高刺激屏幕；花 5 分钟写担忧清单和明天第一步；"
+                "再做 10 分钟 4-7-8 呼吸或渐进式肌肉放松。白天安排 15-30 分钟低强度活动，咖啡因尽量放在午前。"
+                "如果连续超过 2 周仍明显影响白天功能，建议看睡眠门诊或心理咨询。"
+            )
+
+    if re.search(r"没.*运动.*欲望|没有运动.*欲望|下班就想躺|找回动力|没动力", q):
+        return (
+            f"{anchor_text}这更像疲劳或倦怠后的动力下降，不要靠硬顶。你的压力源是 {stress_text}，先把目标降到足够低。\n\n"
+            "今天只做 5-10 分钟最小版本：换鞋下楼走一圈，或在家做 5 分钟拉伸；完成就算成功。"
+            "接下来 7 天固定同一时间做这个小目标，周末再加到 15-20 分钟。"
+            "如果同时有持续情绪低落、兴趣明显下降或睡眠/食欲大变，建议尽快寻求心理支持。"
+        )
+
+    if re.search(r"熬夜|睡眠不足|没睡好", q):
+        return (
+            f"{anchor_text}熬夜后的心理恢复重点是降低刺激和稳定作息，而不是靠意志硬顶。\n\n"
+            "今天先安排 20-30 分钟午休或提前 60 分钟上床；睡前 30 分钟停止工作和高刺激内容，"
+            "写 5 分钟担忧清单，再做 10 分钟呼吸放松。训练强度和身体不适由训练教练/医生判断。"
+        )
+
+    return ""
+
+
+def _episode_section(episode_context: str) -> str:
+    if not episode_context:
+        return ""
+    return (
+        "\n【近期/相关对话记录】\n"
+        f"{episode_context}\n"
+        "说明：[最近] 表示按时间最近的对话，[相关] 表示因话题相似而召回的更早对话；引用时请区分使用。\n"
+    )
+
+
+def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
+    peer_section = peer_notes_text if peer_notes_text else ""
+    user_card = (pctx.get("role_user_cards") or {}).get("Psychologist") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
+    system_prompt = (
+        "你是心理疗愈师，专注压力、焦虑、情绪调节、倦怠、动力下降、压力性进食、睡前心理放松和心理安全边界。\n\n"
+        f"{user_card}\n"
+        f"{_episode_section(episode_context)}"
+        f"{peer_section}"
+        "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
+        "若已有足够信息，必须直接给出方案；只有用户提供新信息时才调用结构化工具记录。"
+        "如需要心理健康、压力管理、睡前放松或倦怠相关知识库支持，可主动调用 retrieve_psychologist_knowledge。"
+        "对于纯打招呼或与心理支持无关的内容，请直接回答，无需检索。"
+        "若检索结果明确返回 '未命中本地知识库'，可凭通用心理支持、睡眠卫生与压力管理知识给出保守兜底建议。"
+        "若用户透露新的压力来源、睡眠信息、情绪变化或回答风格偏好，请优先调用 add_stress_source / "
+        "set_response_style 记录；update_user_profile 仅作兼容兜底。"
+        "输出时兼顾心理支持、可执行节奏与风险边界。"
+        "【领域边界】你不处理身体症状、疼痛、头晕、恶心、胸闷、心悸、伤病、训练负荷或用药问题；"
+        "遇到这些内容，先明确建议由 Doctor/医生评估，训练相关负荷交给 Trainer。"
+        "只有当身体不适背后同时有明显焦虑、压力、恐慌、反刍或倦怠时，才补充心理支持建议。"
+        "【工具使用】当用户询问睡眠、失眠、压力、焦虑、情绪、动力下降、压力性进食或倦怠时，"
+        "优先调用 retrieve_psychologist_knowledge；纯寒暄、感谢或简单确认无需检索。"
+        "【睡眠/压力方案】优先给非药物、可执行的分层方案：今晚能做什么、接下来 7 天怎么调整、何时寻求专业帮助。"
+        "建议应包含固定起床时间、睡前 30-60 分钟降刺激、担忧清单/预约担忧时间、呼吸或渐进式肌肉放松、白天光照与低强度活动等。"
+        "不要建议自行使用安眠药、镇静药或酒精助眠。"
+        "【动力与倦怠】面对'没动力/只想躺着'，不要使用'强迫自己/逼自己'一类措辞；先降低门槛，给 5-10 分钟最小行动版本，"
+        "再给可持续的奖励、环境设计或同伴支持。"
+        "【心理安全边界】若出现自伤/轻生念头、持续恐慌、严重抑郁、连续失眠超过 2 周且影响白天功能，"
+        "必须建议尽快联系心理/睡眠门诊或当地危机支持；若有即时危险，优先联系急救或身边可信的人。"
+        "【输出硬性要求】\n"
+        "1. 若用户卡片有压力源，回答开头必须点名压力源；若有年龄/伤病，也要自然衔接。\n"
+        "2. 必须把压力源/睡眠状态/年龄/作息映射到具体场景化建议，不允许只说「放松」。\n"
+        "3. 至少包含 1 条结合压力源或具体作息的可执行建议，时长/时段/频次具体到分钟或天数。"
+        "若用户说比赛紧张/睡不好，必须直接写出「焦虑」并给出赛前减量、固定作息、视觉化或呼吸放松方案。"
+        "若用户描述了身体症状（持续疼痛、头晕、恶心、心率异常等），"
+        "必须首先建议就医/医生评估，且不要给身体康复、训练恢复或医学处理方案。"
+    )
+    return create_agent(llm, _PSYCHOLOGIST_TOOLS, system_prompt)
+
+
+def run_psychologist(
+    user_id: str,
+    user_question: str,
+    peer_notes_text: str = "",
+    pctx: dict | None = None,
+    episode_context: str = "",
+) -> dict:
+    try:
+        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        print_expert_start("Psychologist", user_question)
+        pctx = pctx or build_personalization_ctx(user_id)
+        deterministic = _deterministic_psychologist_answer(pctx, user_question)
+        if deterministic:
+            print_expert_end("Psychologist", [], deterministic)
+            return {
+                "expert_responses": {"Psychologist": deterministic},
+                "agent_notes": {"Psychologist": build_scratchpad_note("Psychologist", deterministic)},
+                "last_tools": [],
+                "retrieval_hits": 0,
+            }
+        agent = _build_psychologist_agent(
+            pctx,
+            peer_notes_text,
+            episode_context,
+        )
+        result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
+
+        print_expert_trace("Psychologist", result["messages"])
+
+        used_tools: list[str] = []
+        for msg in result["messages"]:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for call in msg.tool_calls:
+                    used_tools.append(call.get("name", "Unknown"))
+
+        retrieval_hits = sum(
+            1 for t in used_tools if "retrieve" in t and "knowledge" in t
+        )
+        answer = extract_text_content(result["messages"][-1])
+        answer = _psychologist_profile_intro(pctx, user_question, answer)
+        print_expert_end("Psychologist", used_tools, answer)
+        return {
+            "expert_responses": {"Psychologist": answer},
+            "agent_notes": {"Psychologist": build_scratchpad_note("Psychologist", answer)},
+            "last_tools": used_tools,
+            "retrieval_hits": retrieval_hits,
+        }
+    except Exception as e:
+        return expert_error_update("Psychologist", e)

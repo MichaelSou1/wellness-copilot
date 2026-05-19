@@ -52,6 +52,9 @@ EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
 EPISODE_SEMANTIC_RETRIEVAL_ENABLED = (
   os.environ.get("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", "true").lower() in _TRUTHY
 )
+EPISODE_EMBED_ON_WRITE_ENABLED = (
+  os.environ.get("EPISODE_EMBED_ON_WRITE_ENABLED", "false").lower() in _TRUTHY
+)
 EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "8"))
 EPISODE_SEMANTIC_TOP_K = int(os.environ.get("EPISODE_SEMANTIC_TOP_K", "3"))
 EPISODE_INDEX_DIR = os.environ.get(
@@ -64,7 +67,7 @@ KNOWLEDGE_BASE_DIR = os.environ.get("KNOWLEDGE_BASE_DIR", "knowledge_base")
 KNOWLEDGE_BASE_AGENT_SUBDIRS = {
   "trainer": os.environ.get("KNOWLEDGE_BASE_TRAINER_SUBDIR", "trainer"),
   "nutritionist": os.environ.get("KNOWLEDGE_BASE_NUTRITIONIST_SUBDIR", "nutritionist"),
-  "wellness": os.environ.get("KNOWLEDGE_BASE_WELLNESS_SUBDIR", "wellness"),
+  "psychologist": os.environ.get("KNOWLEDGE_BASE_PSYCHOLOGIST_SUBDIR", "psychologist"),
   # Safety KB is consulted by Critic before review.
   "safety": os.environ.get("KNOWLEDGE_BASE_SAFETY_SUBDIR", "safety"),
 }
@@ -112,9 +115,11 @@ MCP_TRAINER_ENABLED = (
 MCP_NUTRITIONIST_ENABLED = (
     os.environ.get("MCP_NUTRITIONIST_ENABLED", "false").lower() in _TRUTHY
 )
-MCP_CRITIC_ENABLED = (
-    os.environ.get("MCP_CRITIC_ENABLED", "false").lower() in _TRUTHY
+MCP_DOCTOR_ENABLED = (
+    os.environ.get("MCP_DOCTOR_ENABLED", os.environ.get("MCP_CRITIC_ENABLED", "false")).lower() in _TRUTHY
 )
+# Backward compatibility: older .env files used MCP_CRITIC_ENABLED for medical-mcp.
+MCP_CRITIC_ENABLED = MCP_DOCTOR_ENABLED
 # Nutritionist MCP（jlfwong/food-data-central-mcp-server）未发到 npm，
 # 需先 `bash scripts/setup_mcp_servers.sh` clone+install，再把打印出的
 # src/index.ts 绝对路径填到这里。

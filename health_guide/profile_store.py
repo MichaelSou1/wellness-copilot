@@ -21,9 +21,14 @@ PROFILE_FIELDS_BY_ROLE: Dict[str, Dict[str, Optional[list]]] = {
         "physical_stats": ["age", "weight", "height"],
         "dietary_context": None,  # preferences/goal/provider all matter
     },
-    "Wellness": {
+    "Psychologist": {
         "physical_stats": ["age", "injuries"],
         "mental_state": None,
+    },
+    "Doctor": {
+        "physical_stats": ["age", "weight", "height", "injuries"],
+        "dietary_context": ["preferences"],
+        "mental_state": ["stress_sources"],
     },
     "Orchestrator": {
         "physical_stats": ["age"],

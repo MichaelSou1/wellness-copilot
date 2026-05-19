@@ -47,7 +47,7 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   exit 1
 fi
 
-# medical-mcp (Critic) — installed locally because its npm `bin` link is a
+# medical-mcp (Doctor) — installed locally because its npm `bin` link is a
 # raw ES module without a shebang, so `npx -y medical-mcp` is broken. We
 # point Python at the build artifact and invoke `node` on it directly.
 MEDICAL_DIR="${MCP_MEDICAL_DIR:-$HOME/.cache/mcp-servers/medical-mcp}"
@@ -104,9 +104,9 @@ echo "    MCP_USDA_SCRIPT_PATH=$SCRIPT_PATH"
 echo "    USDA_API_KEY=<free key from https://fdc.nal.usda.gov/api-key-signup>"
 echo "    MCP_NUTRITIONIST_ENABLED=true"
 echo
-echo "    # Critic (medical-mcp)"
+echo "    # Doctor (medical-mcp)"
 echo "    MCP_MEDICAL_SCRIPT_PATH=$MEDICAL_SCRIPT"
-echo "    MCP_CRITIC_ENABLED=true"
+echo "    MCP_DOCTOR_ENABLED=true"
 echo
 echo "    # Trainer (wger) — needs a free account at https://wger.de/en/user/registration"
 echo "    # then generate an API key on your wger profile page."

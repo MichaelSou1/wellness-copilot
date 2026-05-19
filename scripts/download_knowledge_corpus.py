@@ -25,7 +25,7 @@ SOURCES = {
         "url": "https://www.who.int/news-room/fact-sheets/detail/physical-activity",
         "output": "who_physical_activity.md",
     },
-    "wellness": {
+    "psychologist": {
         "title": "WHO - Mental health: strengthening our response",
         "url": "https://www.who.int/news-room/fact-sheets/detail/mental-health-strengthening-our-response",
         "output": "who_mental_health.md",
@@ -154,7 +154,7 @@ def main():
     parser.add_argument(
         "--only",
         default="all",
-        choices=["all", "shared", "nutritionist", "trainer", "wellness"],
+        choices=["all", "shared", "nutritionist", "trainer", "psychologist"],
         help="Download only one bucket or all",
     )
     parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds")

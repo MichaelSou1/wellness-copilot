@@ -23,11 +23,12 @@ import concurrent.futures
 from typing import Callable, Dict, List
 
 from ._scratchpad import format_peer_notes
+from .doctor import run_doctor
 from .fallbacks import expert_error_update
 from .nutritionist import run_nutritionist
 from .query_rewriter import get_user_question
 from .trainer import run_trainer
-from .wellness import run_wellness
+from .psychologist import run_psychologist
 
 
 REPLAN_CAP = 2
@@ -35,7 +36,8 @@ REPLAN_CAP = 2
 EXPERT_RUNNERS: Dict[str, Callable[..., dict]] = {
     "Trainer": run_trainer,
     "Nutritionist": run_nutritionist,
-    "Wellness": run_wellness,
+    "Psychologist": run_psychologist,
+    "Doctor": run_doctor,
 }
 
 

@@ -174,7 +174,7 @@ def test_critic_error_guard_adds_warning():
             {
                 "draft_answer": draft,
                 "messages": [HumanMessage(content="我运动后胸闷而且心率异常怎么办？")],
-                "executed": ["Wellness"],
+                "executed": ["Psychologist"],
                 "profile_user_id": "smoke_error_user",
             }
         )

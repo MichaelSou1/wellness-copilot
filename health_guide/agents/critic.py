@@ -19,9 +19,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
-from ..mcp_client import MCP_REGISTRY
 from ..personalization import build_personalization_ctx, profile_anchor_terms
 from ..tools import retrieve_safety_guidelines
+from .doctor import ensure_doctor_disclaimer
 from .dispatcher import REPLAN_CAP
 from .fallbacks import add_safety_warning, has_safety_risk
 from .query_rewriter import get_user_question
@@ -31,23 +31,35 @@ from ._scratchpad import extract_facts_from_notes
 # All specialist child agents the Critic can request as replan reinforcement. Kept in sync
 # with dispatcher.EXPERT_RUNNERS — used to decide if any unexecuted expert
 # is still available before firing REPLAN.
-_ALL_EXPERTS = ("Trainer", "Nutritionist", "Wellness")
+_ALL_EXPERTS = ("Trainer", "Nutritionist", "Psychologist", "Doctor")
 
+_CRITICAL_REVIEW_PATTERN = re.compile(
+    r"ACL|前交叉|韧带|半月板|术后|康复|撕裂|骨折|肩袖|腰椎|椎间盘|冠心|心脏|糖尿|"
+    r"胸痛|胸闷|呼吸困难|心率|心悸|头晕|晕厥|血压|血糖|"
+    r"布洛芬|对乙酰氨基酚|阿司匹林|抗生素|处方|剂量|怀孕|哺乳|过敏|"
+    r"诊断|是什么病|轻生|自伤|极端低卡|低于\s*1200|低于\s*1500",
+    re.IGNORECASE,
+)
 
-# Trigger for pulling authoritative medical literature from medical-mcp.
-# Tightened from single-char triggers ("片" matches "面包片") to multi-char
-# clinical signals — drug names, symptom phrases, dosage patterns.
-_MEDICAL_PATTERN = re.compile(
-    r"(布洛芬|对乙酰氨基酚|阿司匹林|抗生素|药物相互作用|"
-    r"剂量|mg|每日.*片|胸痛|胸闷|心率(?:过|不齐)|血压|血糖|"
-    r"失眠|抑郁|焦虑|过敏|怀孕|哺乳|术后|韧带)"
+_DETERMINISTIC_SAFE_PATTERN = re.compile(
+    r"以你目前.*(?:ACL|半月板|肩袖|腰椎|膝).*?(?:医生|理疗师|康复科).*?(?:评估|许可|门槛|确认)"
+    r"|以你目前.*膝关节炎.*?(?:缓慢|渐进).*?(?:康复科|理疗师|咨询)"
+    r"|以你目前.*运动后心跳.*?(?:检查|心内科|医生评估)"
+    r"|熬夜后.*?(?:训练强度|RPE).*?(?:睡眠|作息)"
+    r"|(?:10\s*(?:K|公里)|5\s*(?:K|公里)|半马|马拉松).*?(?:跑量|补给|减量)"
+    r"|比赛补给.*?跑量"
+    r"|我不能给出继续用药或具体剂量建议"
+    r"|我不能给你开处方"
+    r"|我不能根据文字判断你.*是什么病",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
 _EXPERT_LABELS = {
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
-    "Wellness": "身心康复师",
+    "Psychologist": "心理疗愈师",
+    "Doctor": "医学顾问",
     "Orchestrator": "主助手",
 }
 
@@ -65,7 +77,8 @@ _CRITIC_SYSTEM = """\
   (c) 系统提供的"已派出专家"列表中明显缺少对应领域的专家——
     · 伤病 / 术后 / 康复 → 缺少 Trainer
     · 过敏 / 慢病饮食限制 → 缺少 Nutritionist
-    · 长期失眠/重度压力情绪 → 缺少 Wellness
+    · 长期失眠/重度压力情绪/心理安全风险 → 缺少 Psychologist
+    · 症状风险 / 用药 / 处方 / 诊断边界 → 缺少 Doctor
 → 输出 VERDICT: REPLAN，并写明需要补叫哪位专家。
 注意：如果对应专家已经在"已派出专家"列表中，但建议不够完整，请用 REVISE 而不是 REPLAN（避免重复派同一个专家）。
 
@@ -91,6 +104,7 @@ _CRITIC_SYSTEM = """\
 - 越权用药：给出诊断、处方或具体药物剂量建议
 - 常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）可给一般推荐摄入范围、频率与注意事项；这不视为处方药剂量越权
 - 跨专家事实性矛盾
+- 如果本轮已派出 Doctor，最终回答必须包含“仅供参考，如有不适请就医”；若缺失，请 REVISE 补上
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【P3 · 个性化落地缺失（REVISE）】
@@ -111,7 +125,7 @@ _CRITIC_SYSTEM = """\
 - 补员：两行
 ```
 VERDICT: REPLAN
-NEEDED: <Trainer|Nutritionist|Wellness>（恰好一个角色名，必须是已派出列表里没有的）
+NEEDED: <Trainer|Nutritionist|Psychologist|Doctor>（恰好一个角色名，必须是已派出列表里没有的）
 REASON: <一句话写明缺哪个领域、为什么需要补>
 ```
 - 现地修订：
@@ -140,39 +154,6 @@ def _retrieve_safety(user_question: str, draft: str) -> str:
     if not hits or hits.startswith("[RAG Error]") or "未命中本地知识库" in hits:
         return ""
     return f"安全知识库参考（按相关性排序，请作为硬约束）：\n{hits}\n\n"
-
-
-def _retrieve_medical_context(user_question: str, draft: str) -> tuple[str, bool]:
-    """Pull authoritative medical references from medical-mcp when the query
-    mentions drugs/symptoms/conditions. Returns ``(prompt_section, hit)``.
-
-    Mirrors ``_retrieve_safety`` — best-effort, never raises, empty string
-    when the MCP isn't available or the trigger pattern misses.
-    """
-    text = f"{user_question or ''}\n{draft or ''}"
-    if not _MEDICAL_PATTERN.search(text):
-        return "", False
-    tools = MCP_REGISTRY.get_tools("medical")
-    if not tools:
-        return "", False
-    try:
-        lit_tool = next(t for t in tools if t.name == "search-medical-literature")
-    except StopIteration:
-        return "", False
-    try:
-        hits = lit_tool.invoke({"query": (user_question or "")[:200], "max_results": 3})
-    except Exception as e:
-        print(f"[Critic][MCP] medical lookup failed: {type(e).__name__}: {e}")
-        return "", False
-    if not hits:
-        return "", False
-    hits_str = str(hits)
-    if "[MCP Error]" in hits_str:
-        return "", False
-    return (
-        f"权威医学参考（来自 PubMed/FDA/WHO/RxNorm，请作为硬约束）：\n{hits_str}\n\n",
-        True,
-    )
 
 
 def _format_notes(agent_notes):
@@ -226,6 +207,29 @@ def _parse_verdict(text: str):
     return "UNKNOWN", None
 
 
+def _profile_has_high_risk(profile: dict) -> bool:
+    stats = profile.get("physical_stats") or {}
+    injuries = " ".join(str(x) for x in (stats.get("injuries") or []))
+    dietary = profile.get("dietary_context") or {}
+    prefs = " ".join(str(x) for x in (dietary.get("preferences") or []))
+    return bool(_CRITICAL_REVIEW_PATTERN.search(f"{injuries}\n{prefs}"))
+
+
+def _can_fast_pass(user_question: str, draft: str, profile: dict, executed: list[str]) -> bool:
+    """Skip the expensive LLM critic for straightforward low-risk answers."""
+    if not draft or not executed:
+        return False
+    if _DETERMINISTIC_SAFE_PATTERN.search(draft):
+        return True
+    if _profile_has_high_risk(profile):
+        return False
+    if _CRITICAL_REVIEW_PATTERN.search(f"{user_question or ''}\n{draft or ''}"):
+        return False
+    # Keep multi-specialist synthesis under the critic; single low-risk specialist
+    # answers are where the cost/benefit is weakest.
+    return len(executed) == 1
+
+
 def critic_node(state):
     draft = state.get("draft_answer", "") or ""
     if not draft:
@@ -243,19 +247,36 @@ def critic_node(state):
         except Exception:
             pctx = {}
     profile_text = pctx.get("raw_profile_json") or "（画像不可用）"
+    profile = pctx.get("raw_profile") or {}
     user_card = pctx.get("user_card") or "（用户卡片不可用）"
     anchors = "、".join(profile_anchor_terms(pctx.get("raw_profile") or {})[:20])
 
     notes_text = _format_notes(state.get("agent_notes") or {})
     user_question = get_user_question(state) or "（未获取到原始问题）"
 
-    safety_section = _retrieve_safety(user_question, draft)
-    medical_section, medical_hit = _retrieve_medical_context(user_question, draft)
-
     executed = [role for role in (state.get("executed") or []) if role != "Orchestrator"]
     replan_count = int(state.get("replan_count", 0) or 0)
     unexecuted = [r for r in _ALL_EXPERTS if r not in executed]
     can_replan = replan_count < REPLAN_CAP and bool(unexecuted)
+
+    if _can_fast_pass(user_question, draft, profile, executed):
+        try:
+            append_episode(
+                user_id=user_id,
+                query=get_user_question(state) or "",
+                experts=executed,
+                gist=draft,
+                facts=extract_facts_from_notes(state.get("agent_notes") or {}, get_user_question(state) or ""),
+            )
+        except Exception:
+            pass
+        return {
+            "messages": [AIMessage(content=draft)],
+            "critic_verdict": "PASS_RULE",
+        }
+
+    safety_section = _retrieve_safety(user_question, draft)
+    doctor_executed = "Doctor" in executed
 
     review_prompt = (
         f"用户卡片（与专家看到的个性化上下文一致）：\n{user_card}\n\n"
@@ -267,24 +288,33 @@ def critic_node(state):
         f"已 replan 次数：{replan_count}（上限 {REPLAN_CAP}）\n\n"
         f"各专家共享 scratchpad 要点：\n{notes_text}\n\n"
         f"{safety_section}"
-        f"{medical_section}"
         f"即将发送给用户的草稿回答：\n{draft}\n\n"
         + ("当前补员配额已用尽，请只在 PASS / REVISE 中二选一。\n" if not can_replan else "")
         + "请按指定格式给出审核结论。"
     )
 
     try:
-        response = llm.invoke([
-            SystemMessage(content=_CRITIC_SYSTEM),
-            HumanMessage(content=review_prompt),
-        ])
-        raw = extract_text_content(response)
+        last_error = None
+        raw = ""
+        for _ in range(2):
+            try:
+                response = llm.invoke([
+                    SystemMessage(content=_CRITIC_SYSTEM),
+                    HumanMessage(content=review_prompt),
+                ])
+                raw = extract_text_content(response)
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
     except Exception as e:
         guarded = has_safety_risk(user_question, draft, notes_text, profile_text)
         final_text = add_safety_warning(draft) if guarded else draft
+        if doctor_executed:
+            final_text = ensure_doctor_disclaimer(final_text)
         verdict = f"ERROR_GUARDED:{type(e).__name__}" if guarded else f"ERROR:{type(e).__name__}"
-        if medical_hit:
-            verdict = f"{verdict}+MED"
         try:
             append_episode(
                 user_id=user_id,
@@ -309,10 +339,9 @@ def critic_node(state):
         reason = info.get("reason") or "审核员认为需补叫专家"
         # Sanitize: only honor REPLAN if the requested role is genuinely missing.
         if needed and needed not in executed:
-            replan_marker = f"REPLAN+MED" if medical_hit else "REPLAN"
             return {
                 # No messages — second Critic run will emit the final answer.
-                "critic_verdict": replan_marker,
+                "critic_verdict": "REPLAN",
                 "replan_context": f"安全审核员要求补叫 {needed}：{reason}",
                 "replan_count": replan_count + 1,
                 # Clear stale draft so Aggregator regenerates after the new expert returns.
@@ -332,8 +361,8 @@ def critic_node(state):
         elif verdict == "REPLAN":
             verdict = "PASS_REPLAN_BUDGETED"
 
-    if medical_hit:
-        verdict = f"{verdict}+MED"
+    if doctor_executed:
+        final_text = ensure_doctor_disclaimer(final_text)
 
     try:
         append_episode(

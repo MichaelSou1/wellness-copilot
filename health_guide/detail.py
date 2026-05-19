@@ -18,6 +18,15 @@ from typing import Any, Iterable
 
 _DETAIL: bool = False
 
+_ROLE_DISPLAY_NAMES = {
+    "Psychologist": "心理疗愈师",
+}
+
+
+def display_role(role: str) -> str:
+    """Return the user-facing role label used in detail traces."""
+    return _ROLE_DISPLAY_NAMES.get(role, role)
+
 
 def set_detail(enabled: bool) -> None:
     """Turn detail mode on/off process-wide.
@@ -70,7 +79,7 @@ def print_mcp_error(tool_name: str, err: BaseException, attempt: int = 1) -> Non
 def print_expert_start(role: str, question: str) -> None:
     if not is_detail():
         return
-    print(f"  [Expert→{role}] question={_truncate(question, 160)}")
+    print(f"  [Expert→{display_role(role)}] question={_truncate(question, 160)}")
 
 
 def print_expert_trace(role: str, messages: Iterable) -> None:
@@ -82,11 +91,11 @@ def print_expert_trace(role: str, messages: Iterable) -> None:
             for call in getattr(msg, "tool_calls", None) or []:
                 name = call.get("name", "?")
                 args = call.get("args", {})
-                print(f"    [{role}·tool_call] {name} args={_truncate(args, 140)}")
+                print(f"    [{display_role(role)}·tool_call] {name} args={_truncate(args, 140)}")
             if getattr(msg, "type", "") == "tool":
                 name = getattr(msg, "name", "?")
                 content = getattr(msg, "content", "")
-                print(f"    [{role}·tool_result] {name} → {_truncate(content, 200)}")
+                print(f"    [{display_role(role)}·tool_result] {name} → {_truncate(content, 200)}")
     except Exception:
         pass
 
@@ -95,4 +104,4 @@ def print_expert_end(role: str, used_tools: list, answer: str) -> None:
     if not is_detail():
         return
     tools_str = ", ".join(used_tools) if used_tools else "(none)"
-    print(f"  [Expert←{role}] tools=[{tools_str}] answer={_truncate(answer, 160)}")
+    print(f"  [Expert←{display_role(role)}] tools=[{tools_str}] answer={_truncate(answer, 160)}")

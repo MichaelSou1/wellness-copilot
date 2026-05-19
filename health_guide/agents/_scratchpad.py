@@ -16,7 +16,8 @@ _NOTE_MAX_CHARS = 280
 _EXPERT_LABELS = {
     "Trainer": "训练教练",
     "Nutritionist": "营养师",
-    "Wellness": "身心康复师",
+    "Psychologist": "心理疗愈师",
+    "Doctor": "医学顾问",
     "Orchestrator": "主助手",
 }
 

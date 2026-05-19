@@ -1,15 +1,14 @@
-"""Community MCP server registry (Trainer / Nutritionist / Critic).
+"""Community MCP server registry (Trainer / Nutritionist / Doctor).
 
 Spawns the configured MCP subprocesses once at process start and exposes their
 tools as synchronous LangChain `StructuredTool` objects to the rest of the
-codebase (the experts' ReAct loops and the Critic's pre-injection helper are
-all synchronous).
+codebase (the experts' ReAct loops are synchronous).
 
 Three servers are wired:
 
 - ``wger``     → Trainer        exercise encyclopedia (5 public tools)
 - ``usda``     → Nutritionist   USDA FoodData Central (1 tool: ``search-foods``)
-- ``medical``  → Critic         FDA / PubMed / WHO / RxNorm (16 tools)
+- ``medical``  → Doctor         FDA / PubMed / WHO / RxNorm (16 tools)
 
 Failure model: if any server fails to come up (missing ``npx``, missing
 ``USDA_API_KEY``, handshake timeout, etc.), its bucket stays empty and
@@ -199,7 +198,7 @@ class MCPRegistry:
                 "env": usda_env,
                 "transport": "stdio",
             }
-        if config.MCP_CRITIC_ENABLED:
+        if config.MCP_DOCTOR_ENABLED:
             if not config.MCP_MEDICAL_SCRIPT_PATH:
                 print(
                     "[MCP] 'medical' skipped: MCP_MEDICAL_SCRIPT_PATH unset. "

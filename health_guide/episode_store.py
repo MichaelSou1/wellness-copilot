@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import EPISODE_STORE_PATH
+from .config import EPISODE_EMBED_ON_WRITE_ENABLED, EPISODE_STORE_PATH
 
 MAX_EPISODES_PER_USER = 20
 
@@ -102,18 +102,19 @@ def append_episode(
         _write_store(data)
     except Exception:
         pass
-    try:
-        from .episode_memory import EpisodeMemory
+    if EPISODE_EMBED_ON_WRITE_ENABLED:
+        try:
+            from .episode_memory import EpisodeMemory
 
-        EpisodeMemory(user_id).index_episode(
-            episode["id"],
-            episode_index_text(episode),
-            episode=episode,
-        )
-    except Exception:
-        # Embed-on-write is a warm cache only; failed indexing must not block
-        # the user-visible answer.
-        pass
+            EpisodeMemory(user_id).index_episode(
+                episode["id"],
+                episode_index_text(episode),
+                episode=episode,
+            )
+        except Exception:
+            # Embed-on-write is a warm cache only; failed indexing must not block
+            # the user-visible answer.
+            pass
 
 
 def get_recent_episodes(user_id: str, n: int = 5) -> List[Dict[str, Any]]:

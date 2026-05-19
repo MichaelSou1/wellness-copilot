@@ -22,6 +22,7 @@ os.environ["PROFILE_STORE_PATH"] = str(tmp_path / "profile_store.json")
 os.environ["EPISODE_STORE_PATH"] = str(tmp_path / "episode_store.json")
 os.environ["EPISODE_INDEX_DIR"] = str(tmp_path / "episode_indices")
 os.environ["EPISODE_SEMANTIC_RETRIEVAL_ENABLED"] = "true"
+os.environ["EPISODE_EMBED_ON_WRITE_ENABLED"] = "true"
 os.environ["EPISODE_SEMANTIC_MIN_COUNT"] = "8"
 os.environ["EPISODE_SEMANTIC_TOP_K"] = "3"
 
@@ -37,14 +38,14 @@ def main():
     seed = [
         ("旧伤记录", ["Trainer"], "用户提到膝盖 ACL 前交叉韧带术后康复，不能跑步、跳跃、急停变向；须经理疗师许可。"),
         ("早餐吃什么", ["Nutritionist"], "讨论了早餐蛋白质和燕麦搭配。"),
-        ("工作压力", ["Wellness"], "讨论了 deadline 压力和睡前放松。"),
+        ("工作压力", ["Psychologist"], "讨论了 deadline 压力和睡前放松。"),
         ("肩部活动", ["Trainer"], "讨论了肩部热身。"),
         ("喝水", ["Nutritionist"], "讨论了饮水量。"),
-        ("通勤久坐", ["Wellness"], "讨论了久坐拉伸。"),
+        ("通勤久坐", ["Psychologist"], "讨论了久坐拉伸。"),
         ("训练后酸痛", ["Trainer"], "讨论了 DOMS 主动恢复。"),
         ("补剂", ["Nutritionist"], "讨论了肌酸 3-5g。"),
         ("晚餐", ["Nutritionist"], "讨论了晚餐蔬菜和蛋白。"),
-        ("睡眠", ["Wellness"], "讨论了固定起床时间。"),
+        ("睡眠", ["Psychologist"], "讨论了固定起床时间。"),
         ("最近一：胸背训练", ["Trainer"], "最近计划是胸背训练，未涉及膝盖。"),
         ("最近二：加班吃饭", ["Nutritionist"], "最近讨论加班时如何点外卖。"),
     ]

@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any, Dict, Iterable, List
 
-from .profile_store import get_user_profile, profile_to_prompt_text
+from .profile_store import get_user_profile, profile_subset_for, profile_to_prompt_text
 
 
 _DEFAULT_NAMES = {"", "user", "用户", "default_user"}
@@ -339,8 +339,13 @@ def build_personalization_ctx(user_id: str) -> Dict[str, Any]:
     profile = get_user_profile(user_id)
     raw_json = profile_to_prompt_text(profile)
     constraints = render_active_constraints(profile)
+    role_user_cards = {
+        role: render_user_card(profile_subset_for(role, profile))
+        for role in ("Trainer", "Nutritionist", "Psychologist", "Doctor", "Orchestrator")
+    }
     return {
         "user_card": render_user_card(profile),
+        "role_user_cards": role_user_cards,
         "active_constraints": constraints,
         "routing_digest": profile_routing_digest(profile),
         "raw_profile": profile,

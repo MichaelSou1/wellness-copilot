@@ -1,4 +1,4 @@
-# 睡眠卫生（Sleep Hygiene）指南（Wellness 私有）
+# 睡眠卫生（Sleep Hygiene）指南（Psychologist 私有）
 
 ## 成年人的睡眠时长
 - 18-64 岁：7-9 小时/晚（美国睡眠基金会、AASM 一致推荐）。

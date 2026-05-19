@@ -32,8 +32,8 @@ class PassLLM:
 def test_judge_parse():
     assert _parse_verdict("VERDICT: CONTINUE") == ""
     assert _parse_verdict("verdict: continue\n") == ""
-    r = _parse_verdict("VERDICT: REPLAN\nREASON: 用户睡眠问题需要 Wellness 补充")
-    assert "睡眠" in r and "Wellness" in r, r
+    r = _parse_verdict("VERDICT: REPLAN\nREASON: 用户睡眠问题需要 Psychologist 补充")
+    assert "睡眠" in r and "Psychologist" in r, r
     # REPLAN without REASON falls back to a generic synthesized reason
     r2 = _parse_verdict("VERDICT: REPLAN")
     assert r2, "REPLAN without REASON should still produce a non-empty reason"
@@ -45,7 +45,7 @@ def test_judge_parse():
 
 def test_dispatcher_replan_trigger():
     state = {
-        "replan_request": "需要 Wellness 补充睡眠建议",
+        "replan_request": "需要 Psychologist 补充睡眠建议",
         "plan": ["Nutritionist"],
         "executed": ["Trainer"],
         "replan_count": 0,
@@ -53,7 +53,7 @@ def test_dispatcher_replan_trigger():
     out = dispatcher_node(state)
     assert out.get("next") == ["__REPLAN__"], f"expected __REPLAN__, got {out.get('next')}"
     assert out.get("replan_request") == ""
-    assert out.get("replan_context") == "需要 Wellness 补充睡眠建议"
+    assert out.get("replan_context") == "需要 Psychologist 补充睡眠建议"
     assert out.get("replan_count") == 1
     print("  ✓ dispatcher_node routes to __REPLAN__ and clears the request")
 
@@ -61,30 +61,30 @@ def test_dispatcher_replan_trigger():
 def test_dispatcher_replan_cap():
     import health_guide.agents.dispatcher as dispatcher_mod
 
-    def wellness_stub(*args, **kwargs):
+    def psychologist_stub(*args, **kwargs):
         return {
-            "expert_responses": {"Wellness": "cap reached, executing remaining plan"},
-            "agent_notes": {"Wellness": "cap reached"},
+            "expert_responses": {"Psychologist": "cap reached, executing remaining plan"},
+            "agent_notes": {"Psychologist": "cap reached"},
             "last_tools": [],
             "retrieval_hits": 0,
         }
 
     state = {
         "replan_request": "再叫一个",
-        "plan": ["Wellness"],
+        "plan": ["Psychologist"],
         "executed": ["Trainer", "Nutritionist"],
         "replan_count": 2,
     }
-    old_wellness = dispatcher_mod.EXPERT_RUNNERS["Wellness"]
-    dispatcher_mod.EXPERT_RUNNERS["Wellness"] = wellness_stub
+    old_psychologist = dispatcher_mod.EXPERT_RUNNERS["Psychologist"]
+    dispatcher_mod.EXPERT_RUNNERS["Psychologist"] = psychologist_stub
     try:
         out = dispatcher_node(state)
     finally:
-        dispatcher_mod.EXPERT_RUNNERS["Wellness"] = old_wellness
+        dispatcher_mod.EXPERT_RUNNERS["Psychologist"] = old_psychologist
     assert out.get("next") == []
     assert out.get("replan_request") == ""
     assert "replan_context" not in out
-    assert out.get("executed") == ["Trainer", "Nutritionist", "Wellness"]
+    assert out.get("executed") == ["Trainer", "Nutritionist", "Psychologist"]
     print("  ✓ dispatcher_node respects REPLAN_CAP and falls through")
 
 
@@ -108,7 +108,7 @@ def test_integration_replan_loop():
     def orchestrator_stub(state):
         if state.get("replan_context"):
             return {
-                "plan": ["Wellness"],
+                "plan": ["Psychologist"],
                 "replan_context": "",
                 "next": [],
                 "orchestrator_decision": "PLAN",
@@ -130,10 +130,10 @@ def test_integration_replan_loop():
             "retrieval_hits": 0,
         }
 
-    def wellness_stub(*args, **kwargs):
+    def psychologist_stub(*args, **kwargs):
         return {
-            "expert_responses": {"Wellness": "睡前 30 分钟降低刺激，做 5 分钟呼吸放松。"},
-            "agent_notes": {"Wellness": "睡眠：睡前 30 分钟降刺激 + 5 分钟呼吸"},
+            "expert_responses": {"Psychologist": "睡前 30 分钟降低刺激，做 5 分钟呼吸放松。"},
+            "agent_notes": {"Psychologist": "睡眠：睡前 30 分钟降刺激 + 5 分钟呼吸"},
             "last_tools": [],
             "retrieval_hits": 0,
         }
@@ -148,14 +148,14 @@ def test_integration_replan_loop():
         last = executed[-1]
         if last == "Trainer" and not fired["v"]:
             fired["v"] = True
-            return {"replan_request": "用户睡眠问题没解决，需要 Wellness 补充建议"}
+            return {"replan_request": "用户睡眠问题没解决，需要 Psychologist 补充建议"}
         return {}
 
     old_runners = dict(dispatcher_mod.EXPERT_RUNNERS)
     old_critic_llm = critic.llm
     dispatcher_mod.EXPERT_RUNNERS = {
         "Trainer": trainer_stub,
-        "Wellness": wellness_stub,
+        "Psychologist": psychologist_stub,
     }
     critic.llm = PassLLM()
 
@@ -207,7 +207,7 @@ def test_integration_replan_loop():
     old_critic_llm = critic.llm
     dispatcher_mod.EXPERT_RUNNERS = {
         "Trainer": trainer_stub,
-        "Wellness": wellness_stub,
+        "Psychologist": psychologist_stub,
     }
     critic.llm = PassLLM()
     try:
@@ -249,13 +249,13 @@ def test_integration_replan_loop():
     assert orchestrator_visits >= 2, f"expected Orchestrator to run >=2x, got {orchestrator_visits}"
     assert saw_replan_route, "Dispatcher never routed to __REPLAN__"
     assert "Trainer" in executed_final, f"Trainer must run, got {executed_final}"
-    assert "Wellness" in executed_final, f"Wellness must join after replan, got {executed_final}"
+    assert "Psychologist" in executed_final, f"Psychologist must join after replan, got {executed_final}"
     assert len(executed_final) >= 2, (
         f"expected ≥2 experts after replan, got {executed_final}"
     )
     assert critic_verdict, "Critic did not produce a verdict"
     assert final_answer, "no final answer"
-    print("  ✓ integration: Judge requested replan, Orchestrator re-ran, Wellness joined, graph finished")
+    print("  ✓ integration: Judge requested replan, Orchestrator re-ran, Psychologist joined, graph finished")
     print(f"     orchestrator_visits={orchestrator_visits}, executed={executed_final}, verdict={critic_verdict}")
 
 

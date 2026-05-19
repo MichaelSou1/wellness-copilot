@@ -16,7 +16,7 @@ What this fixes (driven by the v1 → v2 quality audit):
    ``expected_experts`` — drop the process-level assertion when it
    conflicts with the outcome one.
 
-3. **Empty assertions in high-risk samples**: wellness_002 has
+3. **Empty assertions in high-risk samples**: psychologist_002 has
    ``must_contain: []``; add semantic checks for "low-threshold suggestion"
    language drawn from the reference answer.
 
@@ -97,7 +97,7 @@ def _expand_must_contain(must_contain: list[str]) -> tuple[list[str], list[list[
 # Keyed by sample id; value is a callable that mutates the criteria dict.
 # ---------------------------------------------------------------------------
 
-def _fix_wellness_002(criteria: dict) -> None:
+def _fix_psychologist_002(criteria: dict) -> None:
     """Add a low-threshold-suggestion semantic check.
 
     The reference answer recommends easing the user back into movement
@@ -134,7 +134,7 @@ def _soften_revise_to_either(criteria: dict) -> None:
 
 
 MANUAL_FIXES = {
-    "wellness_002":  _fix_wellness_002,
+    "psychologist_002":  _fix_psychologist_002,
     "rag_skip_002":  _fix_rag_skip_002,
     # process-level replan asserts that now collide with deterministic R1–R5
     "replan_001":    _drop_stale_replan_min,

@@ -6,15 +6,15 @@
 {"query":"膝痛用户训练时应注意什么？","agent":"trainer","relevant_sources":["exercise_safety.md","training_recovery.md"]}
 {"query":"工作组的 RPE 建议目标是多少？","agent":"trainer","relevant_sources":["exercise_safety.md"]}
 {"query":"每周应该安排几天恢复性训练？","agent":"trainer","relevant_sources":["exercise_safety.md","training_recovery.md"]}
-{"query":"高压时期如何平衡训练与恢复？","agent":"wellness","relevant_sources":["recovery_protocol.md","stress_sleep.md"]}
-{"query":"成年人每晚建议睡眠时长是多少？","agent":"wellness","relevant_sources":["stress_sleep.md"]}
-{"query":"疼痛管理应该分几个阶段渐进？","agent":"wellness","relevant_sources":["recovery_protocol.md"]}
-{"query":"持续失眠或情绪低落应该怎么办？","agent":"wellness","relevant_sources":["recovery_protocol.md"]}
-{"query":"短期压力大可以用哪些方法缓解？","agent":"wellness","relevant_sources":["stress_sleep.md"]}
+{"query":"高压时期如何平衡训练与恢复？","agent":"psychologist","relevant_sources":["recovery_protocol.md","stress_sleep.md"]}
+{"query":"成年人每晚建议睡眠时长是多少？","agent":"psychologist","relevant_sources":["stress_sleep.md"]}
+{"query":"疼痛管理应该分几个阶段渐进？","agent":"psychologist","relevant_sources":["recovery_protocol.md"]}
+{"query":"持续失眠或情绪低落应该怎么办？","agent":"psychologist","relevant_sources":["recovery_protocol.md"]}
+{"query":"短期压力大可以用哪些方法缓解？","agent":"psychologist","relevant_sources":["stress_sleep.md"]}
 {"query":"WHO 对健康饮食的核心原则是什么？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"不健康饮食对慢性病有什么影响？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"USDA MyPlate 推荐的健康饮食结构是怎样的？","agent":"nutritionist","relevant_sources":["usda_dietary_guidelines.md"]}
 {"query":"成年人每周建议的身体活动量是多少？","agent":"trainer","relevant_sources":["who_physical_activity.md"]}
 {"query":"身体不活跃对心血管疾病有什么风险？","agent":"trainer","relevant_sources":["who_physical_activity.md"]}
-{"query":"WHO 是如何定义心理健康的？","agent":"wellness","relevant_sources":["who_mental_health.md"]}
-{"query":"全球多少人受心理健康问题影响？","agent":"wellness","relevant_sources":["who_mental_health.md"]}
+{"query":"WHO 是如何定义心理健康的？","agent":"psychologist","relevant_sources":["who_mental_health.md"]}
+{"query":"全球多少人受心理健康问题影响？","agent":"psychologist","relevant_sources":["who_mental_health.md"]}

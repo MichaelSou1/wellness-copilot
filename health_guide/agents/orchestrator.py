@@ -1,24 +1,23 @@
 """Orchestrator — the parent health-guide agent.
 
-The orchestrator owns ordinary conversation and high-level delegation:
-
-* direct replies for chitchat, capability questions, profile/style updates,
-  clarification, and medical-boundary refusals;
-* specialist plans for Trainer / Nutritionist / Wellness only;
-* append-only replan decisions when Critic or ReplanJudge asks for one more
-  specialist.
+The orchestrator is a real parent agent: it owns the user-facing turn and can
+call specialist child agents as tools. Specialist selection is therefore part
+of the parent agent's tool-use loop, not a LangGraph routing step.
 """
 from __future__ import annotations
 
 import os
 import re
+from dataclasses import dataclass, field
 from typing import Dict, List
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
 
 from ..episode_store import append_episode
 from ..llm import extract_text_content, llm
-from ..personalization import build_personalization_ctx, profile_routing_digest
+from ..personalization import build_personalization_ctx
+from ..profile_store import update_user_profile as store_update_user_profile
 from ..tools import (
     add_dietary_preference,
     add_injury,
@@ -29,118 +28,90 @@ from ..tools import (
     update_user_profile,
 )
 from ..utils import create_agent
-from ._scratchpad import build_scratchpad_note, extract_facts_from_notes
-from .fallbacks import empty_replan, orchestrator_error_answer
+from ._scratchpad import build_scratchpad_note, extract_facts_from_notes, format_peer_notes
+from .doctor import ensure_doctor_disclaimer, run_doctor
+from .fallbacks import orchestrator_error_answer
+from .nutritionist import run_nutritionist
 from .query_rewriter import get_user_question
+from .trainer import run_trainer
+from .psychologist import run_psychologist
 
 
-# ---- Routing signals -------------------------------------------------------
-
-_TRAINING_INTENT = re.compile(
-    r"训练|锻炼|健身|动作|计划|频次|频率|强度|"
-    r"减脂|增肌|塑形|燃脂|瘦身|减重|增重|健身房|"
-    r"有氧|力量|跑步|跑量|游泳|骑行|跳绳|HIIT|拉伸|"
-    r"运动量|活动量|腿|腰|肩|背|核心|腹|胸|臂|比赛|备赛|10K|半马|马拉松",
+_ADVICE_REQUEST_SIGNAL = re.compile(
+    r"能不能|能否|可不可以|可以.*吗|能.*吗|怎么|如何|建议|计划|安排|方案|给.*建议|帮我|应该|多少|[？?]",
     re.IGNORECASE,
 )
 
-_FOOD_INTENT = re.compile(
-    r"吃|食|餐|喝|饮食|营养|蛋白|碳水|脂肪|热量|kcal|大卡|"
-    r"零食|早餐|午餐|晚餐|补剂|蛋白粉|奶|蔬菜|水果|食谱|菜谱|"
-    r"补给|碳水加载|赛前餐|赛中",
-    re.IGNORECASE,
-)
-
-_WELLNESS_INTENT = re.compile(
-    r"睡|失眠|入睡|压力|焦虑|抑郁|情绪|疲劳|倦怠|心情|放松|休息|"
-    r"恢复差|恢复不好|恢复不过来|恢复节奏",
-    re.IGNORECASE,
-)
-
-_STYLE_INTENT = re.compile(
-    r"简洁|详细|啰嗦|幽默|正式|口语|英文|中文|回答风格|语气|tone|concise|brief",
-    re.IGNORECASE,
-)
-
-_PROFILE_UPDATE_INTENT = re.compile(
-    r"记一下|记录|更新|保存|我的|我\s*(?:体重|身高|年龄)|"
-    r"不吃|过敏|喜欢|偏好|目标|压力源|回答.*(?:简洁|详细|幽默|正式|英文|中文)",
+_INJURY_RECORD_SIGNAL = re.compile(
+    r"诊断出|被诊断|医生说|术后|重建|康复|恢复期|损伤|撕裂|拉伤|骨折|半月板|ACL|前交叉|肩袖|腰痛",
     re.IGNORECASE,
 )
 
 _MEDICAL_BOUNDARY_INTENT = re.compile(
     r"是什么病|诊断|处方|开药|开一张|剂量|吃多少药|服药量|"
     r"布洛芬|对乙酰氨基酚|阿司匹林|抗生素|胸痛|胸闷|呼吸困难|"
-    r"晕厥|头晕|心率异常|静息心率|血压|血糖",
+    r"晕厥|头晕|晕晕|眩晕|恶心|呕吐|心率异常|静息心率|血压|血糖",
     re.IGNORECASE,
 )
 
-_TRAINER_ONLY_TOPICS = re.compile(
-    r"TDEE|BMR|基础代谢|总能量消耗|maintenance.?calories|代谢率",
+_SELF_DIAGNOSIS_QUESTION = re.compile(
+    r"是什么病|你觉得.*病|是不是.*病|帮我诊断|能诊断|诊断一下|确诊|可能是",
+    re.IGNORECASE,
+)
+
+_MEDICATION_OR_PRESCRIPTION = re.compile(
+    r"处方|开药|开一张|剂量|吃多少药|服药量|布洛芬|对乙酰氨基酚|阿司匹林|抗生素",
     re.IGNORECASE,
 )
 
 _CARDIAC_EXERCISE_SIGNAL = re.compile(
-    r"(?:运动|训练|跑步|健身|锻炼).{0,8}(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|头晕|晕|喘不上)"
-    r"|(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|头晕|晕|喘不上).{0,8}(?:运动|训练|跑步|健身|锻炼)",
+    r"(?:运动|训练|跑步|健身|锻炼).{0,20}(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心)"
+    r"|(?:胸闷|胸痛|胸口闷|胸口痛|心悸|心慌|心跳|心率|头晕|晕晕|眩晕|晕|喘不上|恶心).{0,20}(?:运动|训练|跑步|健身|锻炼)"
+    r"|运动后.{0,12}(?:十几分钟|10\s*分钟|很快|恢复正常)",
     re.IGNORECASE,
 )
 
-_ENDURANCE_RACE_SIGNAL = re.compile(
-    r"10K|5K|半马|马拉松|越野赛|比赛|备赛|跑量|补给|碳水加载|赛前",
+_PHYSICAL_DISCOMFORT_SIGNAL = re.compile(
+    r"头晕|晕晕|眩晕|晕厥|昏厥|恶心|呕吐|胸痛|胸闷|胸口痛|胸口闷|"
+    r"呼吸困难|喘不上|心悸|心慌|心跳异常|心率异常|发热|发烧|"
+    r"剧痛|疼痛|持续疼|持续痛|刺痛|酸痛|肌肉痛|关节痛|膝盖痛|膝盖疼|腰痛|腰疼|"
+    r"腿疼|腿痛|肌肉酸|腿酸|胳膊酸|肩酸|腰酸|酸到|酸得|"
+    r"(?:头|胸|腹|胃|腰|背|肩|颈|膝盖|膝关节|关节|脚踝|小腿|大腿|手腕|手臂|胳膊|肌肉).{0,4}(?:痛|疼)|"
+    r"(?:痛|疼).{0,4}(?:头|胸|腹|胃|腰|背|肩|颈|膝盖|膝关节|关节|脚踝|小腿|大腿|手腕|手臂|胳膊|肌肉)|"
+    r"肿胀|麻木|无力|乏力|抽筋|痉挛|拉伤",
     re.IGNORECASE,
 )
 
-_VALID_EXPERTS = {"Trainer", "Nutritionist", "Wellness"}
-_PRIORITY_ORDER = {"Trainer": 0, "Nutritionist": 1, "Wellness": 2}
+_EXERCISE_DISCOMFORT_SIGNAL = re.compile(
+    r"疲劳|恢复差|恢复不过来|过度训练|练不动|体力不支",
+    re.IGNORECASE,
+)
 
+_EXERCISE_CONTEXT_SIGNAL = re.compile(
+    r"运动|训练|跑步|健身|锻炼|练腿|练胸|练背|力量|有氧|HIIT|肌肉|DOMS|比赛|跑量",
+    re.IGNORECASE,
+)
 
-_ROUTING_SYSTEM = """\
-你是 Health Guide 的主 agent / orchestrator。你要判断当前用户消息是由你直接回应，还是需要调用专业子 agent。
+_ROLE_TOOL_NAMES = {
+    "Trainer": "consult_trainer",
+    "Nutritionist": "consult_nutritionist",
+    "Psychologist": "consult_psychologist",
+    "Doctor": "consult_doctor",
+}
 
-可调用的专业子 agent 只有：
-- Trainer：训练、运动动作、运动计划、伤病/康复期负荷、TDEE/BMR、比赛训练
-- Nutritionist：饮食、营养、热量、蛋白质、补剂、食谱、比赛补给
-- Wellness：睡眠、压力、焦虑/情绪、疲劳、恢复不过来/恢复节奏、心理安全边界；不要因为普通"运动后帮助恢复"就调用
+_ROLE_DISPLAY_NAMES = {
+    "Trainer": "训练教练",
+    "Nutritionist": "营养师",
+    "Psychologist": "心理疗愈师",
+    "Doctor": "医学顾问",
+}
 
-直接由你回应（输出 DIRECT）的情况：
-- 寒暄、感谢、告别、能力介绍、问名字
-- 纯个人信息/偏好/回答风格更新
-- 轻量澄清、范围说明、非专业闲聊
-- 医疗边界/拒诊/拒开处方/用药剂量边界；除非问题同时明确涉及训练、饮食或心理危机，需要对应子 agent
-
-调用子 agent 的情况：
-- 用户要求具体训练/动作/运动安排 → Trainer
-- 用户要求具体饮食/热量/营养/补剂/食谱 → Nutritionist
-- 用户要求睡眠/压力/情绪/疲劳/恢复方案 → Wellness
-- 同时涉及多个领域时输出多个角色，按 Trainer,Nutritionist,Wellness 排序
-
-强制规则：
-- TDEE/BMR/基础代谢/每日总消耗 → Trainer
-- 10K/半马/马拉松/比赛/备赛/跑量 + 补给/饮食/碳水 → Trainer,Nutritionist
-- 训练后睡不好/疲劳/恢复差/恢复不过来 → Trainer,Wellness
-- 自伤/轻生/严重情绪危机 → Wellness
-- 运动中胸闷/胸痛/心悸/头晕 → Trainer
-- 若用户画像或近期记录中有伤病/术后，且当前问题会改变训练负荷或体型目标 → 至少包含 Trainer
-- 若用户画像有过敏/饮食禁忌，且当前问题涉及吃喝/补剂 → 至少包含 Nutritionist
-
-输出格式严格二选一：
-- 直接回应：DIRECT
-- 调用专家：Trainer / Nutritionist / Wellness，多个用英文逗号分隔，不加空格
-不要输出解释。
-"""
-
-_REPLAN_SYSTEM = """\
-你是 Health Guide 的 orchestrator。已有专家回答后，系统要求你判断是否追加专业子 agent。
-
-可选角色: Trainer, Nutritionist, Wellness。
-规则：
-1. 不能重复已经派出过的角色。
-2. 只追加确实必要的角色，默认 1 个，最多 2 个。
-3. 如果不需要追加，直接输出 NONE。
-4. 否则按 Trainer,Nutritionist,Wellness 输出，多个用英文逗号分隔，不加空格。
-不要输出解释。
-"""
+_EXPERT_RUNNERS = {
+    "Trainer": run_trainer,
+    "Nutritionist": run_nutritionist,
+    "Psychologist": run_psychologist,
+    "Doctor": run_doctor,
+}
 
 _DIRECT_TOOLS = [
     set_physical_stats,
@@ -153,121 +124,221 @@ _DIRECT_TOOLS = [
 ]
 
 
-def _sort_by_priority(roles: List[str]) -> List[str]:
+@dataclass
+class _ChildCallContext:
+    user_id: str
+    user_question: str
+    pctx: dict
+    episode_context: str = ""
+    expert_responses: Dict[str, str] = field(default_factory=dict)
+    agent_notes: Dict[str, str] = field(default_factory=dict)
+    prior_agent_notes: Dict[str, str] = field(default_factory=dict)
+    last_tools: List[str] = field(default_factory=list)
+    retrieval_hits: int = 0
+    executed: List[str] = field(default_factory=list)
+
+
+def _profile_anchor_sentence(pctx: dict) -> str:
+    profile = pctx.get("raw_profile") or {}
+    stats = profile.get("physical_stats") or {}
+    anchors = []
+    age = stats.get("age")
+    weight = stats.get("weight")
+    height = stats.get("height")
+    injuries = stats.get("injuries") or []
+    if age:
+        anchors.append(f"{int(age)}岁")
+    if weight:
+        anchors.append(f"{int(weight) if float(weight).is_integer() else weight}kg")
+    if height:
+        anchors.append(f"{int(height) if float(height).is_integer() else height}cm")
+    if injuries:
+        anchors.append("、".join(str(x) for x in injuries if str(x).strip()))
+    return "；结合你的已知信息：" + "、".join(anchors) if anchors else ""
+
+
+def _extract_injury_records(text: str) -> list[str]:
+    records: list[str] = []
+    raw = text or ""
+    if re.search(r"半月板", raw):
+        records.append("膝盖半月板损伤")
+    if re.search(r"ACL|前交叉", raw, re.IGNORECASE):
+        month = re.search(r"(\d+|一|二|三|四|五|六|七|八|九|十)\s*个?月|半年", raw)
+        if month:
+            token = month.group(1) if month.lastindex else ""
+            records.append("ACL术后6个月" if "半年" in month.group(0) or token == "6" or token == "六" else f"ACL术后{month.group(0)}")
+        elif re.search(r"术后|重建", raw):
+            records.append("ACL术后")
+        else:
+            records.append("ACL损伤")
+    if re.search(r"肩袖", raw):
+        records.append("肩袖损伤恢复期" if re.search(r"恢复|康复", raw) else "肩袖损伤")
+    if re.search(r"肌肉拉伤", raw):
+        records.append("肌肉拉伤")
+    if re.search(r"腰痛|腰疼", raw):
+        records.append("腰痛")
+    if re.search(r"膝盖|膝关节", raw) and not any("膝" in r or "ACL" in r for r in records):
+        records.append("膝盖不适")
+
     seen = []
-    for role in roles:
-        if role in _PRIORITY_ORDER and role not in seen:
-            seen.append(role)
-    seen.sort(key=lambda r: _PRIORITY_ORDER[r])
+    for item in records:
+        if item and item not in seen:
+            seen.append(item)
     return seen
 
 
-def _parse_role_list(content: str) -> List[str]:
-    content = (content or "").strip().replace("'", "").replace('"', "")
-    if not content or content.upper() in {"DIRECT", "NONE"}:
+def _record_episode(user_id: str, query: str, answer: str, experts: List[str], notes: dict | None = None) -> None:
+    try:
+        source_notes = notes or {"Orchestrator": answer}
+        append_episode(
+            user_id=user_id,
+            query=query or "",
+            experts=experts,
+            gist=answer,
+            facts=extract_facts_from_notes(source_notes, query or ""),
+        )
+    except Exception:
+        pass
+
+
+def _doctor_used(executed: list[str] | None, tools: list[str] | None = None) -> bool:
+    if "Doctor" in (executed or []):
+        return True
+    return any(str(t) == "consult_doctor" for t in (tools or []))
+
+
+def _physical_discomfort_roles(query: str) -> list[str]:
+    """Route body symptoms away from the psych-support agent.
+
+    Doctor owns physical discomfort and symptom risk. Trainer should only own
+    training plans when there is no body-symptom complaint in the current ask.
+    """
+    text = query or ""
+    exercise_context = bool(_EXERCISE_CONTEXT_SIGNAL.search(text))
+    has_discomfort = bool(_PHYSICAL_DISCOMFORT_SIGNAL.search(text)) or (
+        exercise_context and bool(_EXERCISE_DISCOMFORT_SIGNAL.search(text))
+    )
+    if not has_discomfort:
         return []
-    roles = [r.strip() for r in content.split(",")]
-    return [r for r in roles if r in _VALID_EXPERTS]
+    return ["Doctor"]
 
 
-def _profile_has_injury(profile: dict) -> bool:
+def _direct_state(
+    user_id: str,
+    user_question: str,
+    answer: str,
+    *,
+    verdict: str = "PASS_DIRECT",
+    used_tools: list[str] | None = None,
+    retrieval_hits: int = 0,
+    experts: list[str] | None = None,
+    expert_responses: dict | None = None,
+    agent_notes: dict | None = None,
+    executed: list[str] | None = None,
+) -> dict:
+    notes = agent_notes or {"Orchestrator": build_scratchpad_note("Orchestrator", answer)}
+    _record_episode(user_id, user_question, answer, experts or ["Orchestrator"], notes)
+    return {
+        "messages": [AIMessage(content=answer)],
+        "expert_responses": expert_responses or {"Orchestrator": answer},
+        "agent_notes": notes,
+        "last_tools": used_tools or [],
+        "retrieval_hits": retrieval_hits,
+        "executed": executed or ["Orchestrator"],
+        "plan": [],
+        "next": [],
+        "replan_count": 0,
+        "replan_request": "",
+        "replan_context": "",
+        "critic_verdict": verdict,
+        "orchestrator_decision": "DIRECT",
+    }
+
+
+def _pure_injury_record_answer(state, user_question: str, pctx: dict) -> dict | None:
+    text = user_question or ""
+    if not _INJURY_RECORD_SIGNAL.search(text):
+        return None
+    if _ADVICE_REQUEST_SIGNAL.search(text):
+        return None
+    injuries = _extract_injury_records(text)
+    if not injuries:
+        return None
+
+    user_id = state.get("profile_user_id", "default_user")
+    profile = pctx.get("raw_profile") or {}
     stats = profile.get("physical_stats") or {}
-    return bool(stats.get("injuries"))
+    existing = [str(x).strip() for x in (stats.get("injuries") or []) if str(x).strip()]
+    merged = list(existing)
+    for injury in injuries:
+        if injury not in merged:
+            merged.append(injury)
+    try:
+        store_update_user_profile(user_id, {"physical_stats": {"injuries": merged}})
+    except Exception:
+        pass
+
+    answer = (
+        f"已记录：{'、'.join(injuries)}。先按医生给出的治疗/康复要求执行，"
+        "在没有医生或理疗师许可前，相关部位先不要自行加负重、跑跳或做疼痛诱发动作。"
+    )
+    return _direct_state(user_id, text, answer)
 
 
-def _profile_has_dietary_restriction(profile: dict) -> bool:
-    dietary = profile.get("dietary_context") or {}
-    prefs = dietary.get("preferences") or []
-    if not prefs:
+def _medical_boundary_answer(user_question: str, pctx: dict) -> str:
+    text = user_question or ""
+    anchor = _profile_anchor_sentence(pctx)
+    doctor = "请尽快找医生、全科/骨科门诊或相应专科做面诊评估"
+
+    if re.search(r"处方|开药|开一张", text):
+        return (
+            f"我不能给你开处方，也不能替医生决定具体药物和剂量{anchor}。"
+            f"{doctor}，由医生根据疼痛部位、用药禁忌、肝肾功能和既往病史判断是否需要用药。\n\n"
+            "在就诊前，可以先做非处方层面的保护：暂停诱发疼痛的训练，按需要休息、冰敷或热敷、避免继续负重刺激；"
+            "如果疼痛加重、麻木无力、肿胀明显或影响日常活动，要更早就医。"
+        )
+
+    if re.search(r"布洛芬|对乙酰氨基酚|阿司匹林|抗生素|剂量|吃多少药|服药量", text):
+        return (
+            f"我不能给出继续用药或具体剂量建议{anchor}。"
+            "布洛芬这类药连续使用、叠加其他药物或本身有胃肠道/肾脏/心血管风险时，需要医生或药师评估；"
+            f"如果疼痛持续，{doctor}。\n\n"
+            "在获得专业意见前，不要自行加量、延长疗程或把止痛药当作继续训练的许可。"
+            "若出现黑便、胃痛明显、胸闷、呼吸困难、过敏反应、下肢麻木无力或大小便异常，请及时就医。"
+        )
+
+    return (
+        f"我不能根据文字判断你“是什么病”，也不能做诊断{anchor}。"
+        f"这类持续疼痛需要通过医生查体，必要时结合影像或实验室检查来明确；{doctor}。\n\n"
+        "在明确原因前，先暂停剧烈运动和会诱发疼痛的动作，不要自行按诊断用药。"
+        "如果伴随胸痛胸闷、呼吸困难、发热、晕厥、疼痛快速加重或神经症状，请优先急诊。"
+    )
+
+
+def _should_answer_medical_boundary_direct(query: str) -> bool:
+    """Deterministic guard for diagnosis / prescription / medication questions."""
+    text = query or ""
+    if not _MEDICAL_BOUNDARY_INTENT.search(text):
         return False
-    restriction_hits = re.compile(r"过敏|不耐|纯素|素食|忌|不吃|不喝|无糖|低糖|无麸质")
-    return any(restriction_hits.search(str(p)) for p in prefs)
+    if _MEDICATION_OR_PRESCRIPTION.search(text) or _SELF_DIAGNOSIS_QUESTION.search(text):
+        return True
+    if re.search(r"持续|痛了|疼了|胸痛|胸闷|呼吸困难|晕厥|头晕|晕晕|眩晕|恶心|呕吐|心率异常|静息心率|血压|血糖", text):
+        return not _CARDIAC_EXERCISE_SIGNAL.search(text)
+    return False
 
 
-def _profile_has_chronic_condition(profile: dict, summary: str) -> bool:
-    return bool(re.search(r"心脏|冠心|糖尿|高血压|哮喘|肾病", summary or ""))
-
-
-def _heuristic_roles(profile: dict, profile_summary: str, query: str) -> List[str]:
-    text = query or ""
-    roles: List[str] = []
-
-    if (
-        _MEDICAL_BOUNDARY_INTENT.search(text)
-        and not _CARDIAC_EXERCISE_SIGNAL.search(text)
-        and not _TRAINING_INTENT.search(text)
-        and not _WELLNESS_INTENT.search(text)
-    ):
-        return []
-
-    if _TRAINING_INTENT.search(text):
-        roles.append("Trainer")
-    if _FOOD_INTENT.search(text):
-        roles.append("Nutritionist")
-    if _WELLNESS_INTENT.search(text):
-        roles.append("Wellness")
-
-    if _TRAINER_ONLY_TOPICS.search(text):
-        roles.append("Trainer")
-
-    if _ENDURANCE_RACE_SIGNAL.search(text):
-        roles.append("Trainer")
-        if _FOOD_INTENT.search(text) or re.search(r"补给|碳水|赛前|赛中|吃|喝", text):
-            roles.append("Nutritionist")
-
-    if _CARDIAC_EXERCISE_SIGNAL.search(text):
-        roles.append("Trainer")
-
-    if _profile_has_injury(profile) and (_TRAINING_INTENT.search(text) or re.search(r"减脂|增肌|塑形|瘦身", text)):
-        roles.append("Trainer")
-
-    if _profile_has_dietary_restriction(profile) and _FOOD_INTENT.search(text):
-        roles.append("Nutritionist")
-
-    if _profile_has_chronic_condition(profile, profile_summary) and _TRAINING_INTENT.search(text):
-        roles.append("Trainer")
-
-    if _STYLE_INTENT.search(text) and not (
-        _TRAINING_INTENT.search(text) or _FOOD_INTENT.search(text) or _WELLNESS_INTENT.search(text)
-    ):
-        return []
-
-    if _MEDICAL_BOUNDARY_INTENT.search(text) and not roles:
-        return []
-
-    if _PROFILE_UPDATE_INTENT.search(text) and not (
-        _TRAINING_INTENT.search(text) or _FOOD_INTENT.search(text) or _WELLNESS_INTENT.search(text)
-    ):
-        return []
-
-    return _sort_by_priority(roles)
-
-
-def _enforce_rules(plan: List[str], profile: dict, profile_summary: str, query: str) -> List[str]:
-    merged = list(plan)
-    for role in _heuristic_roles(profile, profile_summary, query):
-        if role not in merged:
-            merged.append(role)
-    text = query or ""
-    if (
-        "Wellness" in merged
-        and not _WELLNESS_INTENT.search(text)
-        and (_TRAINING_INTENT.search(text) or _FOOD_INTENT.search(text))
-    ):
-        merged = [role for role in merged if role != "Wellness"]
-    return _sort_by_priority(merged)
-
-
-def _format_responses(responses: Dict[str, str]) -> str:
-    if not responses:
-        return "（无）"
-    parts = []
-    for role, value in responses.items():
-        snippet = (value or "").strip()
-        if len(snippet) > 240:
-            snippet = snippet[:240] + "…"
-        parts.append(f"[{role}]\n{snippet}")
-    return "\n\n".join(parts)
+def _simple_direct_answer(state, user_question: str, pctx: dict) -> dict | None:
+    text = (user_question or "").strip()
+    if not text:
+        return None
+    answer = ""
+    if re.search(r"你叫什么名字|你是谁|名字", text):
+        answer = "我是 Health Guide，你的健康管理助手，可以帮你拆解训练、饮食、睡眠、压力和康复相关问题。"
+    elif re.search(r"天气.*好|今天天气|阳光|外面.*好", text):
+        answer = "是啊，天气好很适合做一点低门槛活动：出门轻松走 20-30 分钟，或者晒晒太阳、做 5 分钟拉伸就很好。"
+    if not answer:
+        return None
+    return _direct_state(state.get("profile_user_id", "default_user"), text, answer)
 
 
 def _episode_section(episode_context: str) -> str:
@@ -280,44 +351,91 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
-def _build_direct_agent(pctx: dict, episode_context: str = ""):
+def _call_child_agent(role: str, ctx: _ChildCallContext) -> str:
+    if role in ctx.executed:
+        return f"[{role}] 本轮已经调用过该子 agent，请直接使用已有结果。"
+    runner = _EXPERT_RUNNERS[role]
+    peer_notes = format_peer_notes(
+        {**ctx.prior_agent_notes, **ctx.agent_notes},
+        self_role=role,
+    )
+    result = runner(ctx.user_id, ctx.user_question, peer_notes, ctx.pctx, ctx.episode_context)
+    response = (result.get("expert_responses") or {}).get(role, "")
+    ctx.expert_responses.update(result.get("expert_responses") or {})
+    ctx.agent_notes.update(result.get("agent_notes") or {})
+    ctx.last_tools.extend(result.get("last_tools") or [])
+    ctx.retrieval_hits += int(result.get("retrieval_hits") or 0)
+    ctx.executed.append(role)
+    return response or f"[{role}] 子 agent 已完成，但没有返回可用文本。"
+
+
+def _make_child_tool(role: str, ctx: _ChildCallContext):
+    descriptions = {
+        "Trainer": "调用 Trainer 子 agent，处理训练、运动动作、运动计划、TDEE/BMR、伤病/康复期负荷和比赛训练。",
+        "Nutritionist": "调用 Nutritionist 子 agent，处理饮食、营养、热量、蛋白质、补剂、食谱和比赛补给。",
+        "Psychologist": (
+            "调用心理疗愈师子 agent，处理压力、焦虑/情绪、动力下降、倦怠、压力性进食、"
+            "睡前心理放松和心理安全边界；不要用它处理身体症状、疼痛、头晕、恶心、伤病或医学不适。"
+        ),
+        "Doctor": "调用 Doctor 子 agent，处理一般医学建议、症状风险分层、就医建议、用药/处方边界和医学资料查询。",
+    }
+
+    def _consult_child() -> str:
+        return _call_child_agent(role, ctx)
+
+    return tool(
+        _ROLE_TOOL_NAMES[role],
+        description=descriptions[role],
+    )(_consult_child)
+
+
+def _orchestrator_tools(ctx: _ChildCallContext):
+    return [
+        _make_child_tool("Trainer", ctx),
+        _make_child_tool("Nutritionist", ctx),
+        _make_child_tool("Psychologist", ctx),
+        _make_child_tool("Doctor", ctx),
+        *_DIRECT_TOOLS,
+    ]
+
+
+def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_context: str = ""):
     user_card = pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
     system_prompt = (
-        "你是 Health Guide 的主 agent / orchestrator，团队核心定位是健康管理：饮食、运动、睡眠、压力、伤病恢复。"
-        f"\n\n{user_card}\n"
+        "你是 Health Guide 的父 agent / orchestrator。你直接面向用户，并通过工具调用专业子 agent；"
+        "不要把专家选择当成文本路由输出，也不要输出 PLAN、DIRECT 或专家名单。\n\n"
+        f"{user_card}\n"
         f"{_episode_section(episode_context)}"
-        "你负责直接处理寒暄、感谢、告别、能力介绍、澄清、画像/偏好记录、回答风格记录、"
-        "通用健康常识和医疗边界说明。专业训练/营养/身心方案通常已由上游改派子 agent；"
-        "如果这里仍遇到明显专业方案请求，先给简短方向并邀请用户继续细化，不要冒充医生或处方者。\n"
-        "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
-        "只有用户提供新信息时才调用结构化工具记录。"
-        "若用户提供年龄、身高、体重、伤病、饮食目标/偏好、压力源或回答风格，请优先调用对应 set_/add_ 工具；"
-        "update_user_profile 仅作兼容兜底。"
-        "当用户明确要求「简洁/详细/幽默/正式/口语/英文/中文」等回答风格时，必须调用 set_response_style。"
-        "对纯打招呼、感谢、告别、问名字、能力范围，简短自然回应，不要检索。"
-        "当用户问「你能做什么」时，先说健康能力：训练与运动建议、饮食与营养规划、睡眠与压力管理、"
-        "伤病/康复期注意事项、根据画像做个性化方案。"
-        "对于「天气真好」「最近不想动」这类轻量消息，可以给 1 条低门槛行动建议，例如快走 20-30 分钟或轻松拉伸。"
-        "【医疗边界】不能诊断疾病、开处方、给处方药剂量或保证「没事」。"
-        "涉及胸痛/胸闷、呼吸困难、晕厥、明显心率异常、持续疼痛、用药剂量、处方或自我诊断时，"
-        "必须先建议就医/医生评估；不要列未经确认的诊断猜测，也不要使用「可能是 X 病」替代就医建议。"
-        "回答保持自然、简洁、像同一个主助手在说话。"
+        "你可以直接处理寒暄、感谢、告别、能力介绍、澄清、画像/偏好记录、回答风格记录、"
+        "通用健康常识和医疗边界说明。只有用户提供新信息时才调用结构化画像工具；"
+        "用户卡片就是本轮可用画像，不要为了读取画像而调用工具。\n\n"
+        "可调用的专业子 agent 工具：\n"
+        "- consult_trainer：训练、运动动作、运动计划、伤病/康复期负荷、TDEE/BMR、比赛训练。\n"
+        "- consult_nutritionist：饮食、营养、热量、蛋白质、补剂、食谱、比赛补给。\n"
+        "- consult_psychologist：心理疗愈师，仅处理压力、焦虑/情绪、动力下降、倦怠、压力性进食、睡前心理放松和心理安全边界；"
+        "不处理身体症状、疼痛、头晕、恶心、伤病或医学不适。\n"
+        "- consult_doctor：一般医学建议、症状风险分层、就医建议、用药/处方边界、医学资料查询。\n\n"
+        "调用原则：\n"
+        "- 用户要求具体训练/动作/运动安排时，调用 consult_trainer。\n"
+        "- 用户要求具体饮食/热量/营养/补剂/食谱时，调用 consult_nutritionist。\n"
+        "- 用户要求压力、焦虑、情绪困扰、心理倦怠、压力性进食、睡前脑子停不下来或动力下降时，调用 consult_psychologist。\n"
+        "- 用户要求医学建议、症状判断、身体不适如何处理、持续疼痛/头晕/恶心/胸闷等症状、用药安全、处方/药物剂量、体检指标或疾病相关信息时，调用 consult_doctor。\n"
+        "- 同时涉及多个领域时，按需要连续调用多个子 agent，然后把结果自然整合给用户。\n"
+        "- TDEE/BMR/基础代谢/每日总消耗只调用 Trainer。\n"
+        "- 10K/5K/半马/马拉松/跑步比赛/备赛/跑量/补给/碳水，通常同时调用 Trainer 和 Nutritionist。\n"
+        "- 训练后睡不好：若重点是训练负荷/恢复，调用 Trainer；若重点是紧张、压力、反刍思维或焦虑，追加 Psychologist。\n"
+        "- 疲劳、恢复差、肌肉酸痛、头晕、恶心、胸闷、心悸等身体不适，一律不要调用心理疗愈师或 Trainer；先交给 Doctor。\n"
+        "- 运动中胸闷/胸痛/心悸/头晕，同时调用 Doctor 和 Trainer，并优先给出就医/停止高强度训练边界。\n"
+        "- 若用户画像或近期记录中有伤病/术后，且当前问题会改变训练负荷或体型目标，至少调用 Trainer。\n"
+        "- 若用户画像有过敏/饮食禁忌，且当前问题涉及吃喝/补剂，至少调用 Nutritionist。\n\n"
+        "医疗边界：不能诊断疾病、开处方、给处方药剂量或保证“没事”。"
+        "涉及胸痛/胸闷、呼吸困难、晕厥、头晕、恶心、明显心率异常、持续疼痛、用药剂量、处方或自我诊断时，"
+        "必须调用 consult_doctor，并先建议就医/医生评估；不要列未经确认的诊断猜测。"
+        "如果调用了 Doctor，最终回答必须包含「仅供参考，如有不适请就医」。\n\n"
+        "回答要求：如果调用了子 agent，要吸收它们的结论，用一个统一助手的口吻回答，不要说“路由到/派发给”。"
+        "如多个子 agent 观点有重叠，只保留最完整且更安全的表达。"
     )
-    return create_agent(llm, _DIRECT_TOOLS, system_prompt)
-
-
-def _record_episode(user_id: str, query: str, answer: str, experts: List[str]) -> None:
-    try:
-        notes = {"Orchestrator": answer}
-        append_episode(
-            user_id=user_id,
-            query=query or "",
-            experts=experts,
-            gist=answer,
-            facts=extract_facts_from_notes(notes, query or ""),
-        )
-    except Exception:
-        pass
+    return create_agent(llm, _orchestrator_tools(child_ctx), system_prompt)
 
 
 def _direct_answer(state, *, error: Exception | None = None) -> dict:
@@ -335,7 +453,26 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
         if error is not None:
             raise error
-        agent = _build_direct_agent(pctx, episode_context)
+        child_ctx = _ChildCallContext(user_id, user_question, pctx, episode_context)
+
+        if _should_answer_medical_boundary_direct(user_question):
+            _call_child_agent("Doctor", child_ctx)
+            answer = child_ctx.expert_responses.get("Doctor") or _medical_boundary_answer(user_question, pctx)
+            answer = ensure_doctor_disclaimer(answer)
+            return _direct_state(
+                user_id,
+                user_question,
+                answer,
+                verdict="REVISE_DIRECT",
+                used_tools=["consult_doctor", *child_ctx.last_tools],
+                retrieval_hits=child_ctx.retrieval_hits,
+                experts=["Doctor"],
+                expert_responses=child_ctx.expert_responses or {"Doctor": answer},
+                agent_notes=child_ctx.agent_notes or {"Doctor": build_scratchpad_note("Doctor", answer)},
+                executed=["Doctor"],
+            )
+
+        agent = _build_parent_agent(pctx, child_ctx, episode_context)
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
 
         used_tools: list[str] = []
@@ -343,11 +480,12 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 for call in msg.tool_calls:
                     used_tools.append(call.get("name", "Unknown"))
+        used_tools.extend(child_ctx.last_tools)
 
-        retrieval_hits = sum(
-            1 for tool_name in used_tools if "retrieve" in tool_name and "knowledge" in tool_name
-        )
         answer = extract_text_content(result["messages"][-1])
+        if _doctor_used(child_ctx.executed, used_tools):
+            answer = ensure_doctor_disclaimer(answer)
+        retrieval_hits = child_ctx.retrieval_hits
         verdict = "REVISE_DIRECT" if _MEDICAL_BOUNDARY_INTENT.search(user_question or "") else "PASS_DIRECT"
     except Exception as exc:
         used_tools = [f"ERROR:Orchestrator:{type(exc).__name__}"]
@@ -355,131 +493,150 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         answer = orchestrator_error_answer(exc)
         verdict = f"ERROR_DIRECT:{type(exc).__name__}"
 
-    _record_episode(user_id, user_question, answer, ["Orchestrator"])
-    return {
-        "messages": [AIMessage(content=answer)],
-        "expert_responses": {"Orchestrator": answer},
-        "agent_notes": {"Orchestrator": build_scratchpad_note("Orchestrator", answer)},
-        "last_tools": used_tools,
-        "retrieval_hits": retrieval_hits,
-        "executed": ["Orchestrator"],
-        "plan": [],
-        "next": [],
-        "replan_count": 0,
-        "replan_context": "",
-        "critic_verdict": verdict,
-        "orchestrator_decision": "DIRECT",
-    }
+    return _direct_state(
+        user_id,
+        user_question,
+        answer,
+        verdict=verdict,
+        used_tools=used_tools,
+        retrieval_hits=retrieval_hits,
+    )
 
 
-def _fresh_orchestrate(state) -> dict:
+def _run_parent_agent(state) -> dict:
     user_id = state.get("profile_user_id", "default_user")
     pctx = state.get("personalization_ctx") or {}
     if not pctx:
         pctx = build_personalization_ctx(user_id)
-    profile = pctx.get("raw_profile") or {}
-    summary = pctx.get("routing_digest") or profile_routing_digest(profile)
-
     user_question = get_user_question(state)
-    episode_ctx = (state.get("episode_context") or "").strip()
+    episode_context = state.get("episode_context") or ""
 
-    parts = []
-    if summary:
-        parts.append(f"用户画像：{summary}")
-    if episode_ctx:
-        parts.append(
-            "近期/相关对话记录：\n"
-            f"{episode_ctx}\n"
-            "说明：[最近] 表示按时间最近的对话，[相关] 表示因话题相似而召回的更早对话。"
+    record_update = _pure_injury_record_answer(state, user_question, pctx)
+    if record_update:
+        return record_update
+
+    simple_direct = _simple_direct_answer(state, user_question, pctx)
+    if simple_direct:
+        return simple_direct
+
+    if _should_answer_medical_boundary_direct(user_question):
+        return _direct_answer(state)
+
+    physical_roles = _physical_discomfort_roles(user_question)
+    if physical_roles:
+        child_ctx = _ChildCallContext(
+            user_id,
+            user_question,
+            pctx,
+            episode_context,
+            prior_agent_notes=dict(state.get("agent_notes") or {}),
         )
-    parts.append(f"用户问题：{user_question}")
-
-    try:
-        response = llm.invoke([
-            SystemMessage(content=_ROUTING_SYSTEM),
-            HumanMessage(content="\n".join(parts)),
-        ])
-        content = extract_text_content(response).strip().replace("'", "").replace('"', "")
-    except Exception as exc:
-        roles = _heuristic_roles(profile, summary, user_question)
-        if roles:
-            return {
-                "plan": roles,
-                "executed": ["Orchestrator"],
-                "replan_count": 0,
-                "replan_context": "",
-                "next": [],
-                "orchestrator_decision": "PLAN",
-            }
-        return _direct_answer(state, error=exc)
-
-    if content.upper() == "DIRECT":
-        return _direct_answer(state)
-
-    plan = _sort_by_priority(_parse_role_list(content))
-    plan = _enforce_rules(plan, profile, summary, user_question)
-    if not plan:
-        return _direct_answer(state)
-
-    return {
-        "plan": plan,
-        "executed": ["Orchestrator"],
-        "replan_count": 0,
-        "replan_context": "",
-        "next": [],
-        "orchestrator_decision": "PLAN",
-    }
-
-
-def _replan(state) -> dict:
-    replan_ctx = state.get("replan_context", "")
-    executed = state.get("executed") or []
-    responses = state.get("expert_responses") or {}
-    user_text = get_user_question(state)
-
-    user_prompt = (
-        f"用户最初的问题：\n{user_text or '（未获取到）'}\n\n"
-        f"已经派出过的专家（按顺序）：{executed or '（无）'}\n\n"
-        f"各专家已给出的回答摘要：\n{_format_responses(responses)}\n\n"
-        f"补叫请求理由：\n{replan_ctx}\n\n"
-        "请决定接下来要追加哪些专业子 agent。"
-    )
-
-    response = llm.invoke([
-        SystemMessage(content=_REPLAN_SYSTEM),
-        HumanMessage(content=user_prompt),
-    ])
-    content = extract_text_content(response).strip().replace("'", "").replace('"', "")
-
-    if content.upper() == "NONE":
+        used_tools: list[str] = []
+        for role in physical_roles:
+            _call_child_agent(role, child_ctx)
+            used_tools.append(_ROLE_TOOL_NAMES[role])
         return {
+            "expert_responses": child_ctx.expert_responses,
+            "agent_notes": child_ctx.agent_notes,
+            "last_tools": used_tools + child_ctx.last_tools,
+            "retrieval_hits": child_ctx.retrieval_hits,
+            "executed": child_ctx.executed,
             "plan": [],
-            "replan_context": "",
             "next": [],
-            "orchestrator_decision": "NO_REPLAN",
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "orchestrator_decision": "CALLED_CHILD",
         }
 
-    candidates = _parse_role_list(content)
-    filtered = [r for r in _sort_by_priority(candidates) if r not in executed]
-    return {
-        "plan": filtered,
-        "replan_context": "",
-        "next": [],
-        "orchestrator_decision": "PLAN" if filtered else "NO_REPLAN",
-    }
+    try:
+        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        child_ctx = _ChildCallContext(
+            user_id,
+            user_question,
+            pctx,
+            episode_context,
+            prior_agent_notes=dict(state.get("agent_notes") or {}),
+        )
+
+        if state.get("replan_context"):
+            needed = ""
+            context_text = str(state.get("replan_context") or "")
+            executed_roles = state.get("executed") or []
+            for role in _EXPERT_RUNNERS:
+                if role in context_text and role not in executed_roles:
+                    needed = role
+                    break
+            if not needed and re.search(r"医学|症状|就医|用药|处方|诊断|剂量|Doctor", context_text, re.IGNORECASE):
+                if "Doctor" not in executed_roles:
+                    needed = "Doctor"
+            if needed:
+                _call_child_agent(needed, child_ctx)
+                return {
+                    "expert_responses": child_ctx.expert_responses,
+                    "agent_notes": child_ctx.agent_notes,
+                    "last_tools": child_ctx.last_tools,
+                    "retrieval_hits": child_ctx.retrieval_hits,
+                    "executed": [role for role in executed_roles if role != "Orchestrator"] + child_ctx.executed,
+                    "plan": [],
+                    "next": [],
+                    "replan_request": "",
+                    "replan_context": "",
+                    "orchestrator_decision": "CALLED_CHILD",
+                }
+
+        agent = _build_parent_agent(pctx, child_ctx, episode_context)
+        result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
+
+        parent_tools: list[str] = []
+        for msg in result["messages"]:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for call in msg.tool_calls:
+                    parent_tools.append(call.get("name", "Unknown"))
+
+        answer = extract_text_content(result["messages"][-1])
+        all_tools = parent_tools + child_ctx.last_tools
+        if _doctor_used(child_ctx.executed, parent_tools):
+            answer = ensure_doctor_disclaimer(answer)
+
+        if child_ctx.executed:
+            return {
+                "draft_answer": answer,
+                "expert_responses": child_ctx.expert_responses,
+                "agent_notes": child_ctx.agent_notes,
+                "last_tools": all_tools,
+                "retrieval_hits": child_ctx.retrieval_hits,
+                "executed": child_ctx.executed,
+                "plan": [],
+                "next": [],
+                "replan_count": 0,
+                "replan_request": "",
+                "replan_context": "",
+                "orchestrator_decision": "CALLED_CHILD",
+            }
+
+        _record_episode(user_id, user_question, answer, ["Orchestrator"])
+        return {
+            "messages": [AIMessage(content=answer)],
+            "expert_responses": {"Orchestrator": answer},
+            "agent_notes": {"Orchestrator": build_scratchpad_note("Orchestrator", answer)},
+            "last_tools": all_tools,
+            "retrieval_hits": 0,
+            "executed": ["Orchestrator"],
+            "plan": [],
+            "next": [],
+            "replan_count": 0,
+            "replan_request": "",
+            "replan_context": "",
+            "critic_verdict": "PASS_DIRECT",
+            "orchestrator_decision": "DIRECT",
+        }
+    except Exception as exc:
+        return _direct_answer(state, error=exc)
 
 
 def orchestrator_node(state):
-    try:
-        if state.get("replan_context"):
-            return _replan(state)
-        return _fresh_orchestrate(state)
-    except Exception as exc:
-        if state.get("replan_context"):
-            out = empty_replan()
-            out["orchestrator_decision"] = "NO_REPLAN"
-            return out
-        return _direct_answer(state, error=exc)
+    return _run_parent_agent(state)
 
 
 # Backward compatibility for scripts importing the old planner symbol.

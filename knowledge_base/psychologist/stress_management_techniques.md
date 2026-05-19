@@ -1,4 +1,4 @@
-# 压力管理技术（Wellness 私有）
+# 压力管理技术（Psychologist 私有）
 
 ## 认识压力
 - 急性压力（acute stress）：短期应激，适度有益（促进专注与表现）。

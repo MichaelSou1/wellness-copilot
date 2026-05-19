@@ -8,11 +8,11 @@ import uuid
 from pathlib import Path
 from langchain_core.messages import HumanMessage
 from health_guide.config import (
-    MCP_CRITIC_ENABLED,
+    MCP_DOCTOR_ENABLED,
     MCP_NUTRITIONIST_ENABLED,
     MCP_TRAINER_ENABLED,
 )
-from health_guide.detail import set_detail
+from health_guide.detail import display_role, set_detail
 from health_guide.graph import graph
 from health_guide.llm import extract_text_content
 from health_guide.mcp_client import MCP_REGISTRY
@@ -116,7 +116,7 @@ def main():
 
     tracker = ObservabilityTracker()
 
-    if any([MCP_TRAINER_ENABLED, MCP_NUTRITIONIST_ENABLED, MCP_CRITIC_ENABLED]):
+    if any([MCP_TRAINER_ENABLED, MCP_NUTRITIONIST_ENABLED, MCP_DOCTOR_ENABLED]):
         try:
             with _suppress_process_output(not detail):
                 MCP_REGISTRY.startup()
@@ -195,8 +195,9 @@ def main():
                                 if not isinstance(resp, str):
                                     continue
                                 if detail:
+                                    label = display_role(expert)
                                     print(
-                                        f"[{expert} 回答]: "
+                                        f"[{label} 回答]: "
                                         f"{resp[:120]}{'...' if len(resp) > 120 else ''}"
                                     )
 
@@ -205,8 +206,9 @@ def main():
                                 if not isinstance(note, str):
                                     continue
                                 if detail:
+                                    label = display_role(expert)
                                     print(
-                                        f"[scratchpad/{expert}]: "
+                                        f"[scratchpad/{label}]: "
                                         f"{note[:100]}{'...' if len(note) > 100 else ''}"
                                     )
 
@@ -237,12 +239,12 @@ def main():
                         if "plan" in value and value["plan"] is not None:
                             plan_list = value["plan"]
                             if detail and plan_list:
-                                print(f"[Plan 待执行]: {' -> '.join(plan_list)}")
+                                print(f"[Plan 待执行]: {' -> '.join(display_role(role) for role in plan_list)}")
 
                         if "executed" in value and value["executed"]:
                             routes = value["executed"]
                             if detail:
-                                print(f"[Plan 已执行]: {', '.join(routes)}")
+                                print(f"[Plan 已执行]: {', '.join(display_role(role) for role in routes)}")
 
                         if "history_summary" in value and value["history_summary"]:
                             if detail:

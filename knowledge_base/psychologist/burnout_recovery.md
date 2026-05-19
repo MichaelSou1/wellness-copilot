@@ -1,4 +1,4 @@
-# 职业倦怠（Burnout）识别与恢复（Wellness 私有）
+# 职业倦怠（Burnout）识别与恢复（Psychologist 私有）
 
 ## 什么是倦怠
 - WHO ICD-11 将 burnout 定义为"由慢性工作压力未能成功管理所致的综合征"。

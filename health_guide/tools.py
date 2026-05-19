@@ -58,9 +58,9 @@ def retrieve_nutritionist_knowledge(query: str, top_k: int = 4):
 
 
 @tool
-def retrieve_wellness_knowledge(query: str, top_k: int = 4):
-    """康复师专用：从 wellness 知识库检索睡眠/压力/身心恢复知识。"""
-    return _retrieve_by_agent(query=query, top_k=top_k, agent="wellness")
+def retrieve_psychologist_knowledge(query: str, top_k: int = 4):
+    """心理疗愈师专用：从 psychologist 知识库检索心理健康、睡眠与压力管理知识。"""
+    return _retrieve_by_agent(query=query, top_k=top_k, agent="psychologist")
 
 
 @tool
@@ -240,7 +240,7 @@ def calculate_tdee(weight_kg: float, height_cm: float, age: int, activity_level:
 tools = [
     retrieve_trainer_knowledge,
     retrieve_nutritionist_knowledge,
-    retrieve_wellness_knowledge,
+    retrieve_psychologist_knowledge,
     retrieve_safety_guidelines,
     calculate_tdee,
     get_user_profile,

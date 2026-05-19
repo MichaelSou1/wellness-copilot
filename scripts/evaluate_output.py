@@ -628,9 +628,10 @@ def _run_sample(
 _NEGATION_TOKENS = re.compile(
     r"不要做|不允许|不建议|不推荐|不应当|不可以|不应该|不能做|不再吃|不要吃|不要喝|"
     r"不做|不是|不适合|不宜|不太建议|不该做|不该吃|不该喝|"
-    r"严禁|切勿|忌讳|禁忌|杜绝|严格避免|需避开|需避免|需要避开|"
+    r"严禁|切勿|忌讳|禁忌|禁做|杜绝|严格避免|完全规避|规避|需避开|需避免|需要避开|"
     r"不要|避免|避开|避用|不能|不应|不许|不含|不吃|不喝|"
-    r"勿做|拒绝|戒掉|戒除|剔除|排除|去除|不该|不再|不需|不会|"
+    r"勿做|拒绝|戒掉|戒除|剔除|排除|去除|不得|暂停|暂缓|暂不|先别|不碰|不安排|"
+    r"不该|不再|不需|不会|"
     r"严重过敏|严格无|不在|未含|无需|没有|非花生|不含有|"
     # "after professional approval" / future-conditional phrasing — putting
     # an exercise in a gated "only when allowed" section is not a current
@@ -641,6 +642,24 @@ _NEGATION_TOKENS = re.compile(
     # always describing what to *avoid*, not recommending the substance.
     r"过敏原|过敏|同线生产|共线生产|交叉污染|应急药物|肾上腺素|EpiPen"
 )
+
+
+def _keyword_present(text: str, kw: str) -> bool:
+    """Containment check with a tiny synonym layer for eval-only literals."""
+    if not text or not kw:
+        return False
+    text_lower = text.lower()
+    kw_lower = kw.lower()
+    if kw_lower in text_lower:
+        return True
+    if kw == "克":
+        return bool(
+            re.search(
+                r"\d+(?:\.\d+)?\s*(?:-|–|~|到)?\s*\d*(?:\.\d+)?\s*g(?:/|／)?(?:天|日|day|d)?\b",
+                text_lower,
+            )
+        )
+    return False
 
 # Single-char proximal negators — only honored when they appear in the
 # 1–3 chars immediately preceding the keyword (e.g., "不深蹲、不弓步").
@@ -757,9 +776,9 @@ def _check_assertions(answer: str, state: dict, criteria: dict) -> dict[str, boo
 
       expected_critic_verdict
         Allowed values for state.critic_verdict. Supports:
-          - "PASS"   → matches PASS, PASS+MED, PASS_FALLBACK
-          - "REVISE" → matches REVISE, REVISE+MED
-          - exact string match otherwise (e.g. "PASS+MED")
+          - "PASS"   → matches PASS, PASS_FALLBACK
+          - "REVISE" → matches REVISE
+          - exact string match otherwise
         List form means "any of these".
     """
     results: dict[str, bool] = {}
@@ -767,7 +786,7 @@ def _check_assertions(answer: str, state: dict, criteria: dict) -> dict[str, boo
 
     # ---- legacy: keyword presence/absence in answer ---------------------
     for kw in criteria.get("must_contain", []):
-        results[f"must_contain:{kw}"] = kw.lower() in answer_lower
+        results[f"must_contain:{kw}"] = _keyword_present(answer or "", str(kw))
 
     # ---- v2: synonym groups ("contain at least one of …") ---------------
     # Each entry is a list of interchangeable terms; the assertion passes if
@@ -846,9 +865,9 @@ def _verdict_match(actual: str, allowed: list[str]) -> bool:
     """Match critic verdict band names against the raw verdict string.
 
     Bands:
-      PASS    → PASS / PASS+MED / PASS_FALLBACK / ERROR (best-effort pass)
-      REVISE  → REVISE / REVISE+MED
-      exact   → literal substring match (e.g. PASS+MED)
+      PASS    → PASS / PASS_FALLBACK / ERROR (best-effort pass)
+      REVISE  → REVISE
+      exact   → literal substring match
     """
     if not actual:
         return False
@@ -1149,16 +1168,16 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
     replan_fired = [r for r in results if int(r.get("replan_count", 0) or 0) >= 1]
     replan_rate = round(len(replan_fired) / len(results), 3) if results else None
 
-    # critic verdict band distribution (PASS / REVISE / +MED / ERROR / EMPTY)
+    # critic verdict band distribution (PASS / REVISE / ERROR / EMPTY)
     verdict_dist: dict[str, int] = {}
     for r in results:
         v = (r.get("critic_verdict") or "").strip()
         if not v:
             band = "MISSING"
         elif v.startswith("REVISE"):
-            band = "REVISE+MED" if "+MED" in v else "REVISE"
+            band = "REVISE"
         elif v.startswith("PASS"):
-            band = "PASS+MED" if "+MED" in v else "PASS"
+            band = "PASS"
         elif v.startswith("ERROR"):
             band = "ERROR"
         else:
