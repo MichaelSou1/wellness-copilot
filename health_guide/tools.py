@@ -64,6 +64,12 @@ def retrieve_psychologist_knowledge(query: str, top_k: int = 4):
 
 
 @tool
+def retrieve_doctor_knowledge(query: str, top_k: int = 4):
+    """医学顾问专用：从 doctor 知识库检索症状分诊、慢病指标、用药边界等一般医学知识。"""
+    return _retrieve_by_agent(query=query, top_k=top_k, agent="doctor")
+
+
+@tool
 def retrieve_safety_guidelines(query: str, top_k: int = 3):
     """安全审核员专用：从 safety 知识库检索运动伤病/症状就医/饮食极端等安全条目。"""
     return _retrieve_by_agent(query=query, top_k=top_k, agent="safety")
@@ -241,6 +247,7 @@ tools = [
     retrieve_trainer_knowledge,
     retrieve_nutritionist_knowledge,
     retrieve_psychologist_knowledge,
+    retrieve_doctor_knowledge,
     retrieve_safety_guidelines,
     calculate_tdee,
     get_user_profile,

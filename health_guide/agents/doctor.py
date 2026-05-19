@@ -8,6 +8,7 @@ from ..detail import print_expert_end, print_expert_start, print_expert_trace
 from ..llm import extract_text_content, llm
 from ..mcp_client import MCP_REGISTRY
 from ..personalization import build_personalization_ctx
+from ..tools import retrieve_doctor_knowledge
 from ..utils import create_agent
 from ._scratchpad import build_scratchpad_note
 from .fallbacks import expert_error_update
@@ -165,12 +166,13 @@ def _deterministic_doctor_answer(pctx: dict, user_question: str) -> str:
 def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Doctor") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
-    medical_tools = MCP_REGISTRY.get_tools("medical")
+    mcp_tools = MCP_REGISTRY.get_tools("medical")
+    medical_tools = [retrieve_doctor_knowledge, *mcp_tools]
     mcp_hint = (
         "如需权威医学参考，可调用 medical MCP 工具。优先使用 search-medical-literature / "
         "search-clinical-guidelines / search-drugs / get-drug-details / search-drug-nomenclature；"
         "检索式尽量用简洁英文关键词。"
-        if medical_tools
+        if mcp_tools
         else ""
     )
     system_prompt = (
@@ -179,6 +181,7 @@ def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str =
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
         "用户卡片就是本轮可用画像；不要为了读取画像而调用工具。"
+        "如需要本地医学边界、症状分诊、慢病指标或健康筛查语料，可主动调用 retrieve_doctor_knowledge。"
         f"{mcp_hint}"
         "你必须遵守医疗边界：不能诊断疾病，不能开处方，不能给处方药或需个体化评估药物的具体剂量，"
         "不能保证“没事”。当用户询问诊断、处方、药物剂量、持续疼痛、胸痛/胸闷、呼吸困难、晕厥、"

@@ -8,9 +8,9 @@
 {"query":"每周应该安排几天恢复性训练？","agent":"trainer","relevant_sources":["exercise_safety.md","training_recovery.md"]}
 {"query":"高压时期如何平衡训练与恢复？","agent":"psychologist","relevant_sources":["recovery_protocol.md","stress_sleep.md"]}
 {"query":"成年人每晚建议睡眠时长是多少？","agent":"psychologist","relevant_sources":["stress_sleep.md"]}
-{"query":"疼痛管理应该分几个阶段渐进？","agent":"psychologist","relevant_sources":["recovery_protocol.md"]}
+{"query":"慢性疼痛时，心理支持主要关注哪些恐惧、回避和灾难化思维？","agent":"psychologist","relevant_sources":["chronic_pain_management.md"]}
 {"query":"持续失眠或情绪低落应该怎么办？","agent":"psychologist","relevant_sources":["recovery_protocol.md"]}
-{"query":"短期压力大可以用哪些方法缓解？","agent":"psychologist","relevant_sources":["stress_sleep.md"]}
+{"query":"短期压力大可以用哪些呼吸、放松或任务拆分方法缓解？","agent":"psychologist","relevant_sources":["stress_management_techniques.md","recovery_protocol.md"]}
 {"query":"WHO 对健康饮食的核心原则是什么？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"不健康饮食对慢性病有什么影响？","agent":"nutritionist","relevant_sources":["who_healthy_diet.md"]}
 {"query":"USDA MyPlate 推荐的健康饮食结构是怎样的？","agent":"nutritionist","relevant_sources":["usda_dietary_guidelines.md"]}

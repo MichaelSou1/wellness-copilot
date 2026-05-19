@@ -68,6 +68,7 @@ KNOWLEDGE_BASE_AGENT_SUBDIRS = {
   "trainer": os.environ.get("KNOWLEDGE_BASE_TRAINER_SUBDIR", "trainer"),
   "nutritionist": os.environ.get("KNOWLEDGE_BASE_NUTRITIONIST_SUBDIR", "nutritionist"),
   "psychologist": os.environ.get("KNOWLEDGE_BASE_PSYCHOLOGIST_SUBDIR", "psychologist"),
+  "doctor": os.environ.get("KNOWLEDGE_BASE_DOCTOR_SUBDIR", "doctor"),
   # Safety KB is consulted by Critic before review.
   "safety": os.environ.get("KNOWLEDGE_BASE_SAFETY_SUBDIR", "safety"),
 }

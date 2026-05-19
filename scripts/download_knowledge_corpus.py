@@ -7,29 +7,42 @@ from pathlib import Path
 
 
 SOURCES = {
-    "shared": {
-        "title": "WHO - Healthy diet (Fact sheet)",
-        "url": "https://www.who.int/news-room/fact-sheets/detail/healthy-diet",
-        "output": "who_healthy_diet.md",
-    },
-    "nutritionist": {
-        "title": "USDA - MyPlate (Dietary guidance)",
-        "url": "https://www.dietaryguidelines.gov/",
-        "fallback_urls": [
-            "https://www.myplate.gov/eat-healthy/what-is-myplate",
-        ],
-        "output": "usda_dietary_guidelines.md",
-    },
-    "trainer": {
-        "title": "WHO - Physical activity (Fact sheet)",
-        "url": "https://www.who.int/news-room/fact-sheets/detail/physical-activity",
-        "output": "who_physical_activity.md",
-    },
-    "psychologist": {
-        "title": "WHO - Mental health: strengthening our response",
-        "url": "https://www.who.int/news-room/fact-sheets/detail/mental-health-strengthening-our-response",
-        "output": "who_mental_health.md",
-    },
+    "nutritionist": [
+        {
+            "title": "WHO - Healthy diet (Fact sheet)",
+            "url": "https://www.who.int/news-room/fact-sheets/detail/healthy-diet",
+            "output": "who_healthy_diet.md",
+        },
+        {
+            "title": "USDA - MyPlate (Dietary guidance)",
+            "url": "https://www.dietaryguidelines.gov/",
+            "fallback_urls": [
+                "https://www.myplate.gov/eat-healthy/what-is-myplate",
+            ],
+            "output": "usda_dietary_guidelines.md",
+        },
+    ],
+    "trainer": [
+        {
+            "title": "WHO - Physical activity (Fact sheet)",
+            "url": "https://www.who.int/news-room/fact-sheets/detail/physical-activity",
+            "output": "who_physical_activity.md",
+        }
+    ],
+    "psychologist": [
+        {
+            "title": "WHO - Mental health: strengthening our response",
+            "url": "https://www.who.int/news-room/fact-sheets/detail/mental-health-strengthening-our-response",
+            "output": "who_mental_health.md",
+        }
+    ],
+    "doctor": [
+        {
+            "title": "CDC - About Chronic Diseases",
+            "url": "https://www.cdc.gov/chronic-disease/about/index.html",
+            "output": "cdc_chronic_disease_overview.md",
+        }
+    ],
 }
 
 
@@ -95,7 +108,26 @@ def build_markdown(title: str, url: str, body_text: str) -> str:
 
 def download_one(target_dir: Path, key: str, timeout: int, force: bool, retries: int) -> dict:
     requests = importlib.import_module("requests")
-    config = SOURCES[key]
+    configs = SOURCES[key]
+    if isinstance(configs, dict):
+        configs = [configs]
+    results = []
+    for config in configs:
+        results.append(_download_config(requests, target_dir, key, config, timeout, force, retries))
+    if len(results) == 1:
+        return results[0]
+    return {"bucket": key, "status": "ok", "items": results}
+
+
+def _download_config(
+    requests,
+    target_dir: Path,
+    key: str,
+    config: dict,
+    timeout: int,
+    force: bool,
+    retries: int,
+) -> dict:
     primary_url = config["url"]
     candidate_urls = [primary_url, *(config.get("fallback_urls") or [])]
     out_path = target_dir / key / config["output"]
@@ -154,7 +186,7 @@ def main():
     parser.add_argument(
         "--only",
         default="all",
-        choices=["all", "shared", "nutritionist", "trainer", "psychologist"],
+        choices=["all", "nutritionist", "trainer", "psychologist", "doctor"],
         help="Download only one bucket or all",
     )
     parser.add_argument("--timeout", type=int, default=30, help="HTTP timeout in seconds")
