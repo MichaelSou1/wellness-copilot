@@ -42,6 +42,10 @@ def _take_last_dict(a: Dict, b: Dict) -> Dict:
     return b or {}
 
 
+def _take_last_list(a: List, b: List) -> List:
+    return b or []
+
+
 class AgentState(TypedDict, total=False):
     # add_messages dedupes by id and honors RemoveMessage — required by TurnStart
     # when it summarizes / drops old messages from long sessions.
@@ -89,5 +93,9 @@ class AgentState(TypedDict, total=False):
     recent_logs_summary: Annotated[str, _take_last_str]
     # 微信入口上下文：context_token/chat_type/user_wxid 等
     wechat_context: Annotated[Dict, _take_last_dict]
+    # 微信碎片输入聚合：跨 graph invocation 保留，直到本轮 query 完整后清空
+    pending_input_fragments: Annotated[List[Dict], _take_last_list]
+    input_accumulator_status: Annotated[str, _take_last_str]
+    input_accumulator_reason: Annotated[str, _take_last_str]
     # Orchestrator 决策：DIRECT / PLAN / NO_REPLAN，用于 graph 条件路由和观测。
     orchestrator_decision: Annotated[str, _take_last_str]

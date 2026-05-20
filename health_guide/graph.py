@@ -5,6 +5,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .config import SQLITE_DB_PATH
 from .state import AgentState
+from .agents.input_accumulator import input_accumulator_node
 from .agents.turn_start import turn_start_node
 from .agents.query_rewriter import query_rewriter_node
 from .agents.multimodal_preprocessor import multimodal_preprocessor_node
@@ -42,8 +43,15 @@ def _route_after_critic(state: AgentState):
     return END
 
 
+def _route_after_input_accumulator(state: AgentState):
+    if state.get("input_accumulator_status") == "WAITING":
+        return END
+    return "TurnStart"
+
+
 workflow = StateGraph(AgentState)
 
+workflow.add_node("InputAccumulator", input_accumulator_node)
 workflow.add_node("TurnStart", turn_start_node)
 workflow.add_node("QueryRewriter", query_rewriter_node)
 workflow.add_node("MultiModalPreprocessor", multimodal_preprocessor_node)
@@ -55,7 +63,12 @@ workflow.add_node("Critic", critic_node)
 # 再经 QueryRewriter 解决多轮指代，最后交给 Orchestrator。
 # 注意：replan 路径直接 Critic → Orchestrator，不会再触发 TurnStart/QueryRewriter，
 # 因为同一轮内 contextualized_query 已经稳定，且不能重复清理本轮状态。
-workflow.set_entry_point("TurnStart")
+workflow.set_entry_point("InputAccumulator")
+workflow.add_conditional_edges(
+    "InputAccumulator",
+    _route_after_input_accumulator,
+    ["TurnStart", END],
+)
 workflow.add_edge("TurnStart", "QueryRewriter")
 workflow.add_edge("QueryRewriter", "MultiModalPreprocessor")
 workflow.add_edge("MultiModalPreprocessor", "Orchestrator")

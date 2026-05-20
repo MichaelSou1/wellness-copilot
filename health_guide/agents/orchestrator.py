@@ -16,7 +16,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
 
 from ..episode_store import append_episode
-from ..llm import extract_text_content, llm
+from ..integrations.vision import analyze_image_for_query
+from ..llm import extract_text_content, orchestrator_llm
 from ..personalization import (
     apply_personalization_boost,
     build_personalization_ctx,
@@ -39,6 +40,7 @@ from ._scratchpad import build_scratchpad_note, extract_facts_from_notes, format
 from .analyst import run_analyst
 from .doctor import ensure_doctor_disclaimer, run_doctor
 from .fallbacks import orchestrator_error_answer
+from .multimodal_preprocessor import _payload_for_vision
 from .nutritionist import run_nutritionist
 from .query_rewriter import get_user_question
 from .trainer import run_trainer
@@ -114,9 +116,15 @@ _ANALYST_SIGNAL = re.compile(
     r"最近(?:的)?(?:饮食|训练|日志|数据|趋势|进展)",
     re.IGNORECASE,
 )
-_NUTRITION_CONTEXT_SIGNAL = re.compile(r"饮食|吃|餐|热量|蛋白|碳水|脂肪|营养|体重|减脂|增肌", re.IGNORECASE)
+_NUTRITION_CONTEXT_SIGNAL = re.compile(r"饮食|吃|餐|热量|蛋白|碳水|脂肪|营养|体重|减脂|增肌|喝水|饮水|补水|备餐|加餐", re.IGNORECASE)
 _WELLNESS_CONTEXT_SIGNAL = re.compile(r"睡眠|睡|情绪|压力|恢复|疲劳|精神|心情", re.IGNORECASE)
+llm = orchestrator_llm
 _REMINDER_SIGNAL = re.compile(r"提醒|到点|定时|闹钟|叫我", re.IGNORECASE)
+_CALENDAR_SCHEDULE_SIGNAL = re.compile(
+    r"(?:Apple\s*Calendar|苹果日历|日历|CalDAV|calendar).{0,12}(?:加入|添加|写入|同步|创建|安排|放到|放进|加到|导入)"
+    r"|(?:加入|添加|写入|同步|创建|安排|放到|放进|加到|导入).{0,12}(?:Apple\s*Calendar|苹果日历|日历|CalDAV|calendar)",
+    re.IGNORECASE,
+)
 _NUTRITION_TIMING_SIGNAL = re.compile(r"(?:训练|运动)(?:前|后).{0,12}(?:吃|餐|补|碳水|蛋白|营养)|(?:吃|餐|补).{0,12}(?:训练|运动)(?:前|后)", re.IGNORECASE)
 
 _ROLE_TOOL_NAMES = {
@@ -134,6 +142,8 @@ _ROLE_DISPLAY_NAMES = {
     "Psychologist": "心理疗愈师",
     "Doctor": "医学顾问",
 }
+
+_DEFAULT_IMAGE_QUERY = "用户发送了一张图片，请先理解图片内容，并说明其中与健康咨询可能相关的信息。"
 
 _EXPERT_RUNNERS = {
     "Analyst": run_analyst,
@@ -167,6 +177,7 @@ class _ChildCallContext:
     actuation_log: List[dict] = field(default_factory=list)
     retrieval_hits: int = 0
     executed: List[str] = field(default_factory=list)
+    image_inputs: list[dict] = field(default_factory=list)
     vision_extractions: dict = field(default_factory=dict)
     recent_logs_summary: str = ""
 
@@ -339,7 +350,7 @@ def _analysis_review_roles(query: str) -> list[str]:
 
 
 def _reminder_roles(query: str) -> list[str]:
-    if not _REMINDER_SIGNAL.search(query or ""):
+    if not (_REMINDER_SIGNAL.search(query or "") or _CALENDAR_SCHEDULE_SIGNAL.search(query or "")):
         return []
     if _EXERCISE_CONTEXT_SIGNAL.search(query or ""):
         return ["Trainer"]
@@ -543,7 +554,13 @@ def _grounding_section(ctx: _ChildCallContext) -> str:
         sections.append(
             "【本轮图片/视觉识别结果】\n"
             f"{json.dumps(ctx.vision_extractions, ensure_ascii=False)}\n"
-            "请把其中的热量和宏量营养素当作估算值；confidence < 0.5 时必须用不确定语气。"
+            "这是 multimodal_processor 基于图片和用户问题生成的文本 grounding；"
+            "请只把可见信息当作证据，热量/宏量营养素等数字当作估算值，confidence < 0.5 时必须用不确定语气。"
+        )
+    elif ctx.image_inputs:
+        sections.append(
+            "【本轮图片输入】\n"
+            f"用户本轮提供了 {len(ctx.image_inputs)} 张图片；如需要理解尚未处理的图片或其他图片索引，请调用 multimodal_processor。"
         )
     if ctx.recent_logs_summary:
         sections.append(
@@ -580,6 +597,74 @@ def _call_child_agent(role: str, ctx: _ChildCallContext) -> str:
     return response or f"[{role}] 子 agent 已完成，但没有返回可用文本。"
 
 
+def _multimodal_result_to_text(result: dict) -> str:
+    description = str(result.get("description") or "").strip()
+    focus = str(result.get("query_focus") or "").strip()
+    relevance = str(result.get("health_relevance") or "").strip()
+    uncertainty = str(result.get("uncertainty") or "").strip()
+    content_type = str(result.get("content_type") or "").strip()
+    confidence = result.get("confidence")
+    parts = []
+    if description:
+        parts.append(f"图片描述：{description}")
+    if focus:
+        parts.append(f"与问题最相关的细节：{focus}")
+    if relevance:
+        parts.append(f"健康咨询相关性：{relevance}")
+    if uncertainty:
+        parts.append(f"不确定性：{uncertainty}")
+    if content_type or confidence is not None:
+        parts.append(f"类型/置信度：{content_type or 'unknown'} / {confidence}")
+    meal = result.get("meal")
+    if isinstance(meal, dict) and (meal.get("items") or meal.get("kcal")):
+        parts.append(
+            "餐食估算："
+            f"{json.dumps(meal, ensure_ascii=False)}"
+        )
+    return "\n".join(parts) if parts else json.dumps(result, ensure_ascii=False)
+
+
+def _run_multimodal_processor(
+    ctx: _ChildCallContext,
+    image_index: int = 0,
+    query: str = "",
+    *,
+    record_tool: bool = False,
+) -> str:
+    if not ctx.image_inputs:
+        return "[multimodal_processor] 本轮没有可用图片。"
+    try:
+        idx = int(image_index or 0)
+    except Exception:
+        idx = 0
+    if idx < 0 or idx >= len(ctx.image_inputs):
+        return f"[multimodal_processor] 图片索引 {idx} 不存在；本轮共有 {len(ctx.image_inputs)} 张图片。"
+
+    image = ctx.image_inputs[idx]
+    result = analyze_image_for_query(_payload_for_vision(image), query or ctx.user_question)
+    key = f"image_{idx}"
+    ctx.vision_extractions[key] = result
+    meal = result.get("meal")
+    if isinstance(meal, dict) and (
+        meal.get("items") or any(int(meal.get(k) or 0) > 0 for k in ("kcal", "protein_g", "carbs_g", "fat_g"))
+    ):
+        ctx.vision_extractions["meal"] = meal
+    if record_tool and "multimodal_processor" not in ctx.last_tools:
+        ctx.last_tools.append("multimodal_processor")
+    return _multimodal_result_to_text(result)
+
+
+def _ground_images_if_present(ctx: _ChildCallContext) -> None:
+    """Best-effort grounding for deterministic guard paths.
+
+    Some high-confidence routing branches call child agents directly before
+    the LLM parent gets a chance to use tools. If the user sent images, ground
+    the first one so those child agents still receive visual context.
+    """
+    if ctx.image_inputs and not ctx.vision_extractions:
+        _run_multimodal_processor(ctx, image_index=0, query=ctx.user_question, record_tool=True)
+
+
 def _make_child_tool(role: str, ctx: _ChildCallContext):
     descriptions = {
         "Analyst": "调用 Analyst 子 agent，读取本地 SQLite 健康日志，处理最近/本周/复盘/进展/趋势等数据诊断，不开处方。",
@@ -601,8 +686,26 @@ def _make_child_tool(role: str, ctx: _ChildCallContext):
     )(_consult_child)
 
 
+def _make_multimodal_processor_tool(ctx: _ChildCallContext):
+    def _process_image(image_index: int = 0, query: str = "") -> str:
+        return _run_multimodal_processor(ctx, image_index=image_index, query=query)
+
+    return tool(
+        "multimodal_processor",
+        description=(
+            "当本轮用户发送了图片时调用。输入 image_index（默认 0）和 query；"
+            "该工具会用 VLM 根据图片和用户问题生成面向健康咨询的文字描述，"
+            "并把结果写入本轮视觉 grounding，供后续专家子 agent 使用。"
+        ),
+    )(_process_image)
+
+
 def _orchestrator_tools(ctx: _ChildCallContext):
+    tools = []
+    if ctx.image_inputs:
+        tools.append(_make_multimodal_processor_tool(ctx))
     return [
+        *tools,
         _make_child_tool("Analyst", ctx),
         _make_child_tool("Trainer", ctx),
         _make_child_tool("Nutritionist", ctx),
@@ -635,8 +738,14 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         "不处理身体症状、疼痛、头晕、恶心、伤病或医学不适。\n"
         "- consult_doctor：一般医学建议、症状风险分层、就医建议、用药/处方边界、医学资料查询。\n\n"
         "调用原则：\n"
+        "- 如果本轮存在图片输入，系统通常会先把第 1 张图片通过 multimodal_processor 转成文字 grounding；"
+        "如需要查看其他图片索引或重新聚焦问题，可再次调用 multimodal_processor。"
+        "图片可能是餐食、训练动作/姿势、身体部位、化验单/病历截图、商品包装、环境或其他健康相关内容；不要只按餐盘照处理。\n"
+        "- multimodal_processor 的结果只是视觉描述和估算，不是诊断、称重、身份识别或处方依据；最终回答必须保留必要的不确定性。\n"
         "- 用户询问最近/这周/复盘/进展/趋势/达成情况时，先调用 consult_analyst；若还需要建议，再追加对应专家。\n"
         "- 用户要求具体训练/动作/运动安排时，调用 consult_trainer。\n"
+        "- 用户要求把训练、补餐、喝水、睡眠、放松等健康安排加入 Apple Calendar / 苹果日历 / 日历时，"
+        "按内容调用对应子 agent，由子 agent 执行日历工具。\n"
         "- 用户要求具体饮食/热量/营养/补剂/食谱时，调用 consult_nutritionist。\n"
         "- 用户要求压力、焦虑、情绪困扰、心理倦怠、压力性进食、睡前脑子停不下来或动力下降时，调用 consult_psychologist。\n"
         "- 用户要求医学建议、症状判断、身体不适如何处理、持续疼痛/头晕/恶心/胸闷等症状、用药安全、处方/药物剂量、体检指标或疾病相关信息时，调用 consult_doctor。\n"
@@ -648,8 +757,9 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         "- 运动中胸闷/胸痛/心悸/头晕，同时调用 Doctor 和 Trainer，并优先给出就医/停止高强度训练边界。\n"
         "- 若用户画像或近期记录中有伤病/术后，且当前问题会改变训练负荷或体型目标，至少调用 Trainer。\n"
         "- 若用户画像有过敏/饮食禁忌，且当前问题涉及吃喝/补剂，至少调用 Nutritionist。\n\n"
-        "- 若【本轮图片/视觉识别结果】中存在 meal，且用户在问这餐/热量/蛋白/营养/增肌减脂，调用 Nutritionist；"
+        "- 若 multimodal_processor 返回 meal 或【本轮图片/视觉识别结果】中存在 meal，且用户在问这餐/热量/蛋白/营养/增肌减脂，调用 Nutritionist；"
         "若同一轮还要求安排训练，追加 Trainer。\n"
+        "- 若图片描述涉及训练动作/姿势/运动环境且用户问动作、训练安排或负荷，调用 Trainer；若描述涉及身体症状、伤口、皮疹、化验单、药品或医学风险，调用 Doctor。\n"
         "- 若【近7日结构化日志摘要】不为空且用户问最近/这周/复盘/趋势/进展，优先调用相关子 agent，必要时让其 query_logs 读取明细。\n\n"
         "医疗边界：不能诊断疾病、开处方、给处方药剂量或保证“没事”。"
         "涉及胸痛/胸闷、呼吸困难、晕厥、头晕、恶心、明显心率异常、持续疼痛、用药剂量、处方或自我诊断时，"
@@ -674,6 +784,7 @@ def _make_child_ctx(
         pctx,
         episode_context,
         prior_agent_notes=dict(state.get("agent_notes") or {}),
+        image_inputs=list(state.get("image_inputs") or []),
         vision_extractions=dict(state.get("vision_extractions") or {}),
         recent_logs_summary=state.get("recent_logs_summary") or "",
     )
@@ -681,7 +792,7 @@ def _make_child_ctx(
 
 def _direct_answer(state, *, error: Exception | None = None) -> dict:
     user_id = state.get("profile_user_id", "default_user")
-    user_question = get_user_question(state)
+    user_question = get_user_question(state) or (_DEFAULT_IMAGE_QUERY if state.get("image_inputs") else "")
     pctx = state.get("personalization_ctx") or {}
     if not pctx:
         try:
@@ -697,6 +808,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
 
         if _should_answer_medical_boundary_direct(user_question):
+            _ground_images_if_present(child_ctx)
             _call_child_agent("Doctor", child_ctx)
             answer = child_ctx.expert_responses.get("Doctor") or _medical_boundary_answer(user_question, pctx)
             answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
@@ -706,7 +818,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
             expert_responses = child_ctx.expert_responses or {"Doctor": answer}
             agent_notes = child_ctx.agent_notes or {"Doctor": build_scratchpad_note("Doctor", answer)}
             if _needs_personalization_critic(pctx, user_question, answer, executed):
-                return _draft_for_critic_state(
+                update = _draft_for_critic_state(
                     answer,
                     expert_responses=expert_responses,
                     agent_notes=agent_notes,
@@ -715,7 +827,9 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
                     retrieval_hits=child_ctx.retrieval_hits,
                     executed=executed,
                 )
-            return _direct_state(
+                update["vision_extractions"] = child_ctx.vision_extractions
+                return update
+            update = _direct_state(
                 user_id,
                 user_question,
                 answer,
@@ -727,6 +841,8 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
                 agent_notes=agent_notes,
                 executed=executed,
             )
+            update["vision_extractions"] = child_ctx.vision_extractions
+            return update
 
         agent = _build_parent_agent(pctx, child_ctx, episode_context)
         result = agent.invoke({"messages": [HumanMessage(content=user_question)]})
@@ -750,7 +866,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         answer = orchestrator_error_answer(exc)
         verdict = f"ERROR_DIRECT:{type(exc).__name__}"
 
-    return _direct_state(
+    update = _direct_state(
         user_id,
         user_question,
         answer,
@@ -758,6 +874,9 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
         used_tools=used_tools,
         retrieval_hits=retrieval_hits,
     )
+    if "child_ctx" in locals():
+        update["vision_extractions"] = child_ctx.vision_extractions
+    return update
 
 
 def _run_parent_agent(state) -> dict:
@@ -765,7 +884,7 @@ def _run_parent_agent(state) -> dict:
     pctx = state.get("personalization_ctx") or {}
     if not pctx:
         pctx = build_personalization_ctx(user_id)
-    user_question = get_user_question(state)
+    user_question = get_user_question(state) or (_DEFAULT_IMAGE_QUERY if state.get("image_inputs") else "")
     episode_context = state.get("episode_context") or ""
 
     record_update = _pure_injury_record_answer(state, user_question, pctx)
@@ -785,6 +904,7 @@ def _run_parent_agent(state) -> dict:
 
     if _PSYCH_CRISIS_SIGNAL.search(user_question or ""):
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         _call_child_agent("Psychologist", child_ctx)
         return {
             "expert_responses": child_ctx.expert_responses,
@@ -792,6 +912,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": [_ROLE_TOOL_NAMES["Psychologist"], *child_ctx.last_tools],
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -804,6 +925,7 @@ def _run_parent_agent(state) -> dict:
     physical_roles = _physical_discomfort_roles(user_question)
     if physical_roles:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         used_tools: list[str] = []
         for role in physical_roles:
             _call_child_agent(role, child_ctx)
@@ -814,6 +936,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": used_tools + child_ctx.last_tools,
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -826,6 +949,7 @@ def _run_parent_agent(state) -> dict:
     reminder_roles = _reminder_roles(user_question)
     if reminder_roles:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         used_tools: list[str] = []
         for role in reminder_roles:
             _call_child_agent(role, child_ctx)
@@ -836,6 +960,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": used_tools + child_ctx.last_tools,
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -848,6 +973,7 @@ def _run_parent_agent(state) -> dict:
     nutrition_timing_roles = _nutrition_timing_roles(user_question)
     if nutrition_timing_roles:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         used_tools: list[str] = []
         for role in nutrition_timing_roles:
             _call_child_agent(role, child_ctx)
@@ -858,6 +984,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": used_tools + child_ctx.last_tools,
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -870,6 +997,7 @@ def _run_parent_agent(state) -> dict:
     review_roles = _analysis_review_roles(user_question)
     if review_roles:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         used_tools: list[str] = []
         for role in review_roles:
             _call_child_agent(role, child_ctx)
@@ -880,6 +1008,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": used_tools + child_ctx.last_tools,
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -892,6 +1021,7 @@ def _run_parent_agent(state) -> dict:
     forced_roles = _roles_from_decision_points(pctx, user_question)
     if forced_roles:
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
         used_tools: list[str] = []
         for role in forced_roles:
             _call_child_agent(role, child_ctx)
@@ -902,6 +1032,7 @@ def _run_parent_agent(state) -> dict:
             "last_tools": used_tools + child_ctx.last_tools,
             "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": child_ctx.retrieval_hits,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": child_ctx.executed,
             "plan": [],
             "next": [],
@@ -914,6 +1045,7 @@ def _run_parent_agent(state) -> dict:
     try:
         os.environ["HEALTH_GUIDE_USER_ID"] = user_id
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
+        _ground_images_if_present(child_ctx)
 
         if state.get("replan_context"):
             needed = ""
@@ -927,6 +1059,7 @@ def _run_parent_agent(state) -> dict:
                 if "Doctor" not in executed_roles:
                     needed = "Doctor"
             if needed:
+                _ground_images_if_present(child_ctx)
                 _call_child_agent(needed, child_ctx)
                 return {
                     "expert_responses": child_ctx.expert_responses,
@@ -934,6 +1067,7 @@ def _run_parent_agent(state) -> dict:
                     "last_tools": child_ctx.last_tools,
                     "actuation_log": child_ctx.actuation_log,
                     "retrieval_hits": child_ctx.retrieval_hits,
+                    "vision_extractions": child_ctx.vision_extractions,
                     "executed": [role for role in executed_roles if role != "Orchestrator"] + child_ctx.executed,
                     "plan": [],
                     "next": [],
@@ -964,6 +1098,7 @@ def _run_parent_agent(state) -> dict:
                 "last_tools": all_tools,
                 "actuation_log": child_ctx.actuation_log,
                 "retrieval_hits": child_ctx.retrieval_hits,
+                "vision_extractions": child_ctx.vision_extractions,
                 "executed": child_ctx.executed,
                 "plan": [],
                 "next": [],
@@ -976,7 +1111,7 @@ def _run_parent_agent(state) -> dict:
         answer = apply_personalization_boost(answer, pctx, user_question, max_notes=2)
         notes = {"Orchestrator": build_scratchpad_note("Orchestrator", answer)}
         if _needs_personalization_critic(pctx, user_question, answer, ["Orchestrator"]):
-            return _draft_for_critic_state(
+            update = _draft_for_critic_state(
                 answer,
                 expert_responses={"Orchestrator": answer},
                 agent_notes=notes,
@@ -985,13 +1120,17 @@ def _run_parent_agent(state) -> dict:
                 retrieval_hits=0,
                 executed=["Orchestrator"],
             )
+            update["vision_extractions"] = child_ctx.vision_extractions
+            return update
         _record_episode(user_id, user_question, answer, ["Orchestrator"])
         return {
             "messages": [AIMessage(content=answer)],
             "expert_responses": {"Orchestrator": answer},
             "agent_notes": notes,
             "last_tools": all_tools,
+            "actuation_log": child_ctx.actuation_log,
             "retrieval_hits": 0,
+            "vision_extractions": child_ctx.vision_extractions,
             "executed": ["Orchestrator"],
             "plan": [],
             "next": [],

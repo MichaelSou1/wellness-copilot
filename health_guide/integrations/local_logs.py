@@ -103,10 +103,33 @@ def _ensure_init() -> None:
                 value TEXT,
                 updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS wechat_inbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                update_id TEXT NOT NULL UNIQUE,
+                user_wxid TEXT NOT NULL,
+                context_token TEXT,
+                chat_type TEXT,
+                text TEXT,
+                media_ids_json TEXT,
+                raw_json TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at INTEGER NOT NULL,
+                processed_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS wechat_user_bindings (
+                wechat_wxid TEXT PRIMARY KEY,
+                project_user_id TEXT NOT NULL,
+                display_name TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS ix_meals_user_date ON meals(user_id, date_iso);
             CREATE INDEX IF NOT EXISTS ix_workouts_user_date ON workouts(user_id, date_iso);
             CREATE INDEX IF NOT EXISTS ix_wellness_user_date ON wellness(user_id, date_iso);
             CREATE INDEX IF NOT EXISTS ix_reminders_due ON reminders(delivered, remind_at_epoch);
+            CREATE INDEX IF NOT EXISTS ix_wechat_inbox_pending ON wechat_inbox(status, user_wxid, id);
+            CREATE INDEX IF NOT EXISTS ix_wechat_bindings_project_user
+                ON wechat_user_bindings(project_user_id);
             """
         )
         conn.commit()
@@ -493,6 +516,172 @@ def mark_reminder_delivered(reminder_id: int) -> None:
         (_now_epoch(), int(reminder_id)),
     )
     _connect().commit()
+
+
+def enqueue_wechat_message(
+    *,
+    update_id: str,
+    user_wxid: str,
+    context_token: str = "",
+    chat_type: str = "private",
+    text: str = "",
+    media_ids: list[str] | None = None,
+    raw: dict | None = None,
+) -> bool:
+    """Persist a received WeChat message before any agent processing.
+
+    Returns True when inserted, False when the update already existed.
+    """
+    if not update_id or not user_wxid:
+        return False
+    conn = _connect()
+    cur = conn.execute(
+        """
+        INSERT OR IGNORE INTO wechat_inbox(
+            update_id, user_wxid, context_token, chat_type, text,
+            media_ids_json, raw_json, status, created_at
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        """,
+        (
+            str(update_id),
+            str(user_wxid),
+            str(context_token or ""),
+            str(chat_type or "private"),
+            str(text or ""),
+            json.dumps(media_ids or [], ensure_ascii=False),
+            json.dumps(raw or {}, ensure_ascii=False, default=str),
+            _now_epoch(),
+        ),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def pending_wechat_users(limit: int = 20) -> list[str]:
+    rows = _connect().execute(
+        """
+        SELECT user_wxid, MIN(id) AS first_id
+        FROM wechat_inbox
+        WHERE status = 'pending'
+        GROUP BY user_wxid
+        ORDER BY first_id ASC
+        LIMIT ?
+        """,
+        (int(limit or 20),),
+    ).fetchall()
+    return [str(row["user_wxid"]) for row in rows]
+
+
+def pending_wechat_messages(user_wxid: str, limit: int = 20) -> list[dict]:
+    rows = _connect().execute(
+        """
+        SELECT *
+        FROM wechat_inbox
+        WHERE status = 'pending' AND user_wxid = ?
+        ORDER BY id ASC
+        LIMIT ?
+        """,
+        (str(user_wxid), int(limit or 20)),
+    ).fetchall()
+    messages = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["media_ids"] = json.loads(item.get("media_ids_json") or "[]")
+        except Exception:
+            item["media_ids"] = []
+        try:
+            item["raw"] = json.loads(item.get("raw_json") or "{}")
+        except Exception:
+            item["raw"] = {}
+        messages.append(item)
+    return messages
+
+
+def mark_wechat_messages_processed(ids: list[int], status: str = "done") -> None:
+    if not ids:
+        return
+    placeholders = ", ".join("?" for _ in ids)
+    _connect().execute(
+        f"UPDATE wechat_inbox SET status = ?, processed_at = ? WHERE id IN ({placeholders})",
+        [status, _now_epoch(), *[int(i) for i in ids]],
+    )
+    _connect().commit()
+
+
+def default_wechat_project_user_id(wechat_wxid: str) -> str:
+    wxid = str(wechat_wxid or "").strip()
+    digest = hashlib.sha256(wxid.encode("utf-8")).hexdigest()[:12] if wxid else "unknown"
+    return f"wechat_{digest}"
+
+
+def _normalize_project_user_id(project_user_id: str) -> str:
+    user_id = str(project_user_id or "").strip().lstrip("\ufeff")
+    if not user_id:
+        raise ValueError("project_user_id must not be empty")
+    return user_id
+
+
+def get_wechat_binding(wechat_wxid: str) -> dict | None:
+    wxid = str(wechat_wxid or "").strip()
+    if not wxid:
+        return None
+    row = _connect().execute(
+        """
+        SELECT wechat_wxid, project_user_id, display_name, created_at, updated_at
+        FROM wechat_user_bindings
+        WHERE wechat_wxid = ?
+        """,
+        (wxid,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def bind_wechat_user(wechat_wxid: str, project_user_id: str, display_name: str = "") -> str:
+    wxid = str(wechat_wxid or "").strip()
+    if not wxid:
+        raise ValueError("wechat_wxid must not be empty")
+    user_id = _normalize_project_user_id(project_user_id)
+    now = _now_epoch()
+    _connect().execute(
+        """
+        INSERT INTO wechat_user_bindings(
+            wechat_wxid, project_user_id, display_name, created_at, updated_at
+        ) VALUES(?, ?, ?, ?, ?)
+        ON CONFLICT(wechat_wxid) DO UPDATE SET
+            project_user_id = excluded.project_user_id,
+            display_name = excluded.display_name,
+            updated_at = excluded.updated_at
+        """,
+        (wxid, user_id, str(display_name or ""), now, now),
+    )
+    _connect().commit()
+    return user_id
+
+
+def get_or_create_wechat_user_id(wechat_wxid: str) -> str:
+    wxid = str(wechat_wxid or "").strip()
+    if not wxid:
+        return os.environ.get("HEALTH_GUIDE_USER_ID", "wechat_user")
+    binding = get_wechat_binding(wxid)
+    if binding:
+        return str(binding["project_user_id"])
+    user_id = default_wechat_project_user_id(wxid)
+    bind_wechat_user(wxid, user_id)
+    return user_id
+
+
+def list_wechat_bindings(limit: int = 100) -> list[dict]:
+    rows = _connect().execute(
+        """
+        SELECT wechat_wxid, project_user_id, display_name, created_at, updated_at
+        FROM wechat_user_bindings
+        ORDER BY updated_at DESC
+        LIMIT ?
+        """,
+        (int(limit or 100),),
+    ).fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_kv(key: str, default: str = "") -> str:

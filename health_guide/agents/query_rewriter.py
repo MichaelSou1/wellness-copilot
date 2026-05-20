@@ -147,7 +147,21 @@ def get_user_question(state, messages: Optional[list] = None) -> str:
     msgs = messages if messages is not None else state.get("messages", [])
     for msg in reversed(msgs or []):
         if isinstance(msg, HumanMessage) or getattr(msg, "type", None) == "human":
-            return extract_text_content(msg)
+            text = extract_text_content(msg)
+            if text.strip():
+                return text
+            content = getattr(msg, "content", None)
+            if isinstance(content, list) and any(
+                isinstance(part, dict)
+                and (
+                    part.get("image_url")
+                    or part.get("image_bytes_b64")
+                    or part.get("media_id")
+                    or str(part.get("type") or "").lower() in {"image_url", "input_image"}
+                )
+                for part in content
+            ):
+                return "用户发送了一张图片，请先理解图片内容，并说明其中与健康咨询可能相关的信息。"
     return ""
 
 

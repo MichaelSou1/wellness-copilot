@@ -16,6 +16,7 @@ from .integrations.local_logs import (
     query_logs,
 )
 from .integrations.push_reminder import push_reminder
+from .integrations.apple_calendar import schedule_calendar_event, schedule_workout
 
 # Per-agent KB singletons — created lazily on first call.
 _AGENT_KBS: dict = {}
@@ -270,4 +271,6 @@ tools = [
     log_wellness_checkin,
     query_logs,
     push_reminder,
+    schedule_calendar_event,
+    schedule_workout,
 ]

@@ -15,10 +15,12 @@ services:
       - RAG_HF_HOME=/root/.cache/huggingface
       - HF_HOME=/root/.cache/huggingface
     volumes:
+      - ./.env:/app/.env
       - ./data:/app/data
       - ./data/.hf_cache:/root/.cache/huggingface
       - ./knowledge_base:/app/knowledge_base
       - ./logs:/app/logs
+      - ./tmp:/app/tmp
     command: ["python", "scripts/wechat_ilink_worker.py"]
     healthcheck:
       test: ["CMD", "python", "-c", "from health_guide.integrations.local_logs import _ensure_init; _ensure_init()"]
@@ -35,6 +37,7 @@ services:
       - TZ=Asia/Shanghai
       - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
     volumes:
+      - ./.env:/app/.env:ro
       - ./data:/app/data
       - ./logs:/app/logs
     depends_on:
@@ -56,6 +59,7 @@ services:
       - SESSION_STORE_PATH=/app/data/session_store.json
       - BACKUP_DIR=/app/data/backups
     volumes:
+      - ./.env:/app/.env:ro
       - ./data:/app/data
       - ./reports:/app/reports
       - ./knowledge_base:/app/knowledge_base

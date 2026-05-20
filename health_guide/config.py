@@ -7,15 +7,39 @@ _ = load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _TRUTHY = {"1", "true", "yes"}
 
-# OpenAI 兼容 LLM 配置（所有节点共用一个最强模型；详见 .env.example）
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    text = raw.strip().lower()
+    if text == "":
+        return bool(default)
+    return text in _TRUTHY
+
+
+def _api_mode(name: str, default: str = "responses") -> str:
+    raw = os.environ.get(name)
+    value = raw if raw and raw.strip() else default
+    return value.strip().lower().replace("-", "_")
+
+
+# OpenAI 兼容 LLM 配置。LLM_* 是“其它文本节点”的默认模型；
+# Orchestrator 和 multimodal_processor 可用各自前缀单独覆盖。
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or "https://api.openai.com/v1"
 LLM_API_KEY = os.environ.get("LLM_API_KEY")
 LLM_MODEL = os.environ.get("LLM_MODEL")
-LLM_API_MODE = (
-    os.environ.get("LLM_API_MODE", "responses").strip().lower().replace("-", "_")
-)
+LLM_API_MODE = _api_mode("LLM_API_MODE", "responses")
 LLM_OUTPUT_VERSION = os.environ.get("LLM_OUTPUT_VERSION", "responses/v1")
-LLM_DISABLE_THINKING = os.environ.get("LLM_DISABLE_THINKING", "false").lower() in _TRUTHY
+LLM_DISABLE_THINKING = _env_bool("LLM_DISABLE_THINKING", False)
+
+# 父 agent / Orchestrator：默认继承 LLM_*，需要更强/更慢模型时单独配置。
+ORCHESTRATOR_LLM_BASE_URL = os.environ.get("ORCHESTRATOR_LLM_BASE_URL") or LLM_BASE_URL
+ORCHESTRATOR_LLM_API_KEY = os.environ.get("ORCHESTRATOR_LLM_API_KEY") or LLM_API_KEY
+ORCHESTRATOR_LLM_MODEL = os.environ.get("ORCHESTRATOR_LLM_MODEL") or LLM_MODEL
+ORCHESTRATOR_LLM_API_MODE = _api_mode("ORCHESTRATOR_LLM_API_MODE", LLM_API_MODE)
+ORCHESTRATOR_LLM_OUTPUT_VERSION = os.environ.get("ORCHESTRATOR_LLM_OUTPUT_VERSION") or LLM_OUTPUT_VERSION
+ORCHESTRATOR_LLM_DISABLE_THINKING = _env_bool("ORCHESTRATOR_LLM_DISABLE_THINKING", LLM_DISABLE_THINKING)
 
 # 长期记忆默认模板：用户画像 (User Profile)
 DEFAULT_USER_PROFILE = {
@@ -54,14 +78,17 @@ OBSERVABILITY_DB_PATH = os.environ.get("OBSERVABILITY_DB_PATH", "observability.d
 HEALTH_LOGS_DB_PATH = os.environ.get("HEALTH_LOGS_DB_PATH", "health_logs.db")
 DEFAULT_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Shanghai")
 
+# === Apple Calendar / iCloud CalDAV（可选）===
+# 使用 Apple ID 的 App 专用密码，不要使用 Apple ID 主密码。
+ICLOUD_CALDAV_URL = os.environ.get("ICLOUD_CALDAV_URL") or "https://caldav.icloud.com"
+ICLOUD_USERNAME = os.environ.get("ICLOUD_USERNAME", "")
+ICLOUD_APP_SPECIFIC_PASSWORD = os.environ.get("ICLOUD_APP_SPECIFIC_PASSWORD", "")
+ICLOUD_CALENDAR_NAME = os.environ.get("ICLOUD_CALENDAR_NAME", "")
+
 # 情节记忆存储文件（每用户最近 N 轮对话摘要，跨 thread 持久化）
 EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
-EPISODE_SEMANTIC_RETRIEVAL_ENABLED = (
-  os.environ.get("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", "true").lower() in _TRUTHY
-)
-EPISODE_EMBED_ON_WRITE_ENABLED = (
-  os.environ.get("EPISODE_EMBED_ON_WRITE_ENABLED", "false").lower() in _TRUTHY
-)
+EPISODE_SEMANTIC_RETRIEVAL_ENABLED = _env_bool("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", True)
+EPISODE_EMBED_ON_WRITE_ENABLED = _env_bool("EPISODE_EMBED_ON_WRITE_ENABLED", False)
 EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "8"))
 EPISODE_SEMANTIC_TOP_K = int(os.environ.get("EPISODE_SEMANTIC_TOP_K", "3"))
 EPISODE_INDEX_DIR = os.environ.get(
@@ -117,15 +144,9 @@ RAG_RERANK_BATCH_SIZE = int(os.environ.get("RAG_RERANK_BATCH_SIZE", "16"))
 
 # === 社区 MCP 工具服务器（可选）===
 # 三个开关默认全 false，老用户拉新版无感升级；显式 opt-in 才会 spawn 子进程。
-MCP_TRAINER_ENABLED = (
-    os.environ.get("MCP_TRAINER_ENABLED", "false").lower() in _TRUTHY
-)
-MCP_NUTRITIONIST_ENABLED = (
-    os.environ.get("MCP_NUTRITIONIST_ENABLED", "false").lower() in _TRUTHY
-)
-MCP_DOCTOR_ENABLED = (
-    os.environ.get("MCP_DOCTOR_ENABLED", os.environ.get("MCP_CRITIC_ENABLED", "false")).lower() in _TRUTHY
-)
+MCP_TRAINER_ENABLED = _env_bool("MCP_TRAINER_ENABLED", False)
+MCP_NUTRITIONIST_ENABLED = _env_bool("MCP_NUTRITIONIST_ENABLED", False)
+MCP_DOCTOR_ENABLED = _env_bool("MCP_DOCTOR_ENABLED", _env_bool("MCP_CRITIC_ENABLED", False))
 # Backward compatibility: older .env files used MCP_CRITIC_ENABLED for medical-mcp.
 MCP_CRITIC_ENABLED = MCP_DOCTOR_ENABLED
 # Nutritionist MCP（jlfwong/food-data-central-mcp-server）未发到 npm，
@@ -147,33 +168,67 @@ MCP_WGER_SCRIPT_PATH = os.environ.get("MCP_WGER_SCRIPT_PATH", "")
 # 30s 不够。命中本地 npx 缓存后实际只用 1-2s。
 MCP_STARTUP_TIMEOUT_SEC = int(os.environ.get("MCP_STARTUP_TIMEOUT_SEC", "90"))
 
-# === 多模态 Vision（可选）===
-VISION_ENABLED = os.environ.get("VISION_ENABLED", "true").lower() in _TRUTHY
-VISION_PROVIDER = os.environ.get("VISION_PROVIDER", "disabled").strip().lower()
-VISION_BASE_URL = os.environ.get("VISION_BASE_URL") or os.environ.get("LLM_BASE_URL") or ""
-VISION_API_KEY = os.environ.get("VISION_API_KEY") or os.environ.get("LLM_API_KEY") or ""
-VISION_MODEL = os.environ.get("VISION_MODEL", "")
-VISION_TIMEOUT_SEC = int(os.environ.get("VISION_TIMEOUT_SEC", "60"))
+# === 多模态 VLM / multimodal_processor（可选）===
+# MULTIMODAL_LLM_* 是新配置名；VISION_* 作为旧配置名保留兼容。
+_LEGACY_VISION_ENABLED = _env_bool("VISION_ENABLED", True)
+MULTIMODAL_LLM_ENABLED = _env_bool("MULTIMODAL_LLM_ENABLED", _LEGACY_VISION_ENABLED)
+MULTIMODAL_LLM_PROVIDER = (
+    os.environ.get("MULTIMODAL_LLM_PROVIDER")
+    or os.environ.get("VISION_PROVIDER")
+    or "disabled"
+).strip().lower()
+MULTIMODAL_LLM_BASE_URL = (
+    os.environ.get("MULTIMODAL_LLM_BASE_URL")
+    or os.environ.get("VISION_BASE_URL")
+    or LLM_BASE_URL
+    or ""
+)
+MULTIMODAL_LLM_API_KEY = (
+    os.environ.get("MULTIMODAL_LLM_API_KEY")
+    or os.environ.get("VISION_API_KEY")
+    or LLM_API_KEY
+    or ""
+)
+MULTIMODAL_LLM_MODEL = os.environ.get("MULTIMODAL_LLM_MODEL") or os.environ.get("VISION_MODEL", "")
+MULTIMODAL_LLM_TIMEOUT_SEC = int(
+    os.environ.get("MULTIMODAL_LLM_TIMEOUT_SEC")
+    or os.environ.get("VISION_TIMEOUT_SEC", "60")
+)
+MULTIMODAL_LLM_API_MODE = _api_mode("MULTIMODAL_LLM_API_MODE", "chat_completions")
+
+# Backward-compatible aliases for older code/config/docs.
+VISION_ENABLED = MULTIMODAL_LLM_ENABLED
+VISION_PROVIDER = MULTIMODAL_LLM_PROVIDER
+VISION_BASE_URL = MULTIMODAL_LLM_BASE_URL
+VISION_API_KEY = MULTIMODAL_LLM_API_KEY
+VISION_MODEL = MULTIMODAL_LLM_MODEL
+VISION_TIMEOUT_SEC = MULTIMODAL_LLM_TIMEOUT_SEC
 
 # === 微信 iLink / ClawBot（可选）===
 WECHAT_ILINK_BASE_URL = os.environ.get(
     "WECHAT_ILINK_BASE_URL",
     "https://ilinkai.weixin.qq.com",
 ).rstrip("/")
+WECHAT_QR_BASE_URL = os.environ.get("WECHAT_QR_BASE_URL", WECHAT_ILINK_BASE_URL).rstrip("/")
+WECHAT_CDN_BASE_URL = os.environ.get(
+    "WECHAT_CDN_BASE_URL",
+    "https://novac2c.cdn.weixin.qq.com/c2c",
+).rstrip("/")
+WECHAT_ILINK_APP_ID = os.environ.get("WECHAT_ILINK_APP_ID", "bot")
+WECHAT_CHANNEL_VERSION = os.environ.get("WECHAT_CHANNEL_VERSION", "0.1.0")
+WECHAT_BOT_TYPE = int(os.environ.get("WECHAT_BOT_TYPE", "3"))
 WECHAT_BOT_TOKEN = os.environ.get("WECHAT_BOT_TOKEN", "")
-WECHAT_APP_ID = os.environ.get("WECHAT_APP_ID", "")
-WECHAT_APP_SECRET = os.environ.get("WECHAT_APP_SECRET", "")
 WECHAT_POLL_TIMEOUT_SEC = int(os.environ.get("WECHAT_POLL_TIMEOUT_SEC", "30"))
 WECHAT_WORKER_IDLE_SEC = float(os.environ.get("WECHAT_WORKER_IDLE_SEC", "1"))
-WECHAT_ENDPOINT_QRCODE = os.environ.get("WECHAT_ENDPOINT_QRCODE", "/v1/bot/qrcode")
+WECHAT_ENDPOINT_QRCODE = os.environ.get("WECHAT_ENDPOINT_QRCODE", "/ilink/bot/get_bot_qrcode")
 WECHAT_ENDPOINT_QRCODE_STATUS = os.environ.get(
     "WECHAT_ENDPOINT_QRCODE_STATUS",
-    "/v1/bot/qrcode/status",
+    "/ilink/bot/get_qrcode_status",
 )
-WECHAT_ENDPOINT_UPDATES = os.environ.get("WECHAT_ENDPOINT_UPDATES", "/v1/messages/updates")
-WECHAT_ENDPOINT_SEND = os.environ.get("WECHAT_ENDPOINT_SEND", "/v1/messages/send")
-WECHAT_ENDPOINT_PUSH = os.environ.get("WECHAT_ENDPOINT_PUSH", "/v1/messages/push")
-WECHAT_ENDPOINT_MEDIA = os.environ.get("WECHAT_ENDPOINT_MEDIA", "/v1/media/{media_id}")
+WECHAT_ENDPOINT_UPDATES = os.environ.get("WECHAT_ENDPOINT_UPDATES", "/ilink/bot/getupdates")
+WECHAT_ENDPOINT_SEND = os.environ.get("WECHAT_ENDPOINT_SEND", "/ilink/bot/sendmessage")
+WECHAT_ENDPOINT_PUSH = os.environ.get("WECHAT_ENDPOINT_PUSH", WECHAT_ENDPOINT_SEND)
+WECHAT_ENDPOINT_MEDIA = os.environ.get("WECHAT_ENDPOINT_MEDIA", "")
 
 # === 备份（可选）===
 BACKUP_DIR = os.environ.get("BACKUP_DIR", "backups")

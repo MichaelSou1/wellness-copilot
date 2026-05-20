@@ -14,6 +14,7 @@ from ..tools import (
     push_reminder,
     query_logs,
     retrieve_nutritionist_knowledge,
+    schedule_calendar_event,
     set_dietary_goal,
     set_physical_stats,
     update_user_profile,
@@ -40,6 +41,7 @@ _NUTRITIONIST_TOOLS = [
     log_meal,
     query_logs,
     push_reminder,
+    schedule_calendar_event,
 ]
 
 
@@ -337,6 +339,14 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
+def _current_time_section() -> str:
+    try:
+        now = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
+    except Exception:
+        now = datetime.now()
+    return f"【当前日期时间】{now.strftime('%Y-%m-%d %H:%M')}（{DEFAULT_TIMEZONE}）\n"
+
+
 def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Nutritionist") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
@@ -352,6 +362,7 @@ def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context:
     )
     system_prompt = (
         "你是膳食营养师。\n\n"
+        f"{_current_time_section()}"
         f"{user_card}\n"
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
@@ -366,6 +377,8 @@ def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context:
         "set_dietary_goal / add_dietary_preference 做结构化更新；update_user_profile 仅作兼容兜底。"
         "如果用户要求记录餐食、或本轮上下文提供了视觉识别出的餐食数据且用户在询问这餐/这顿，"
         "请调用 log_meal 写入本地日志；如果用户要求稍后提醒补蛋白/喝水/加餐，请调用 push_reminder。"
+        "如果用户明确要求把补餐、喝水、备餐或营养相关安排加入 Apple Calendar / 苹果日历 / 日历，"
+        "请调用 schedule_calendar_event；start_iso 必须使用 ISO 时间并带当前时区，若日期或时间缺失则先询问。"
         "需要复盘最近饮食时，先调用 query_logs(kind='meal') 读取真实日志。"
         "输出请给出清晰饮食方案（热量、三大营养素、可替代食材）。"
         "【补剂建议边界】当用户询问常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）"

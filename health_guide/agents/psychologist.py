@@ -1,15 +1,19 @@
 """Psychological-support expert — invoked as the Psychologist-compatible callable."""
 import os
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import HumanMessage
 
+from ..config import DEFAULT_TIMEZONE
 from ..tools import (
     add_stress_source,
     log_wellness_checkin,
     push_reminder,
     query_logs,
     retrieve_psychologist_knowledge,
+    schedule_calendar_event,
     set_response_style,
     update_user_profile,
 )
@@ -34,6 +38,7 @@ _PSYCHOLOGIST_TOOLS = [
     log_wellness_checkin,
     query_logs,
     push_reminder,
+    schedule_calendar_event,
 ]
 
 _BODY_SYMPTOM_SIGNAL = re.compile(
@@ -240,6 +245,14 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
+def _current_time_section() -> str:
+    try:
+        now = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
+    except Exception:
+        now = datetime.now()
+    return f"【当前日期时间】{now.strftime('%Y-%m-%d %H:%M')}（{DEFAULT_TIMEZONE}）\n"
+
+
 def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Psychologist") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
@@ -248,6 +261,7 @@ def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context:
     )
     system_prompt = (
         "你是心理疗愈师，专注压力、焦虑、情绪调节、倦怠、动力下降、压力性进食、睡前心理放松和心理安全边界。\n\n"
+        f"{_current_time_section()}"
         f"{user_card}\n"
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
@@ -261,6 +275,8 @@ def _build_psychologist_agent(pctx: dict, peer_notes_text: str, episode_context:
         "set_response_style 记录；update_user_profile 仅作兼容兜底。"
         "如果用户要求记录睡眠、情绪、压力或恢复打卡，请调用 log_wellness_checkin；"
         "如果用户要求之后提醒放松、睡觉或复盘，请调用 push_reminder；需要复盘近期恢复时，先调用 query_logs(kind='wellness')。"
+        "如果用户明确要求把睡眠、放松、复盘或恢复安排加入 Apple Calendar / 苹果日历 / 日历，"
+        "请调用 schedule_calendar_event；start_iso 必须使用 ISO 时间并带当前时区，若日期或时间缺失则先询问。"
         "输出时兼顾心理支持、可执行节奏与风险边界。"
         "【领域边界】你不处理身体症状、疼痛、头晕、恶心、胸闷、心悸、伤病、训练负荷或用药问题；"
         "遇到这些内容，先明确建议由 Doctor/医生评估，训练相关负荷交给 Trainer。"

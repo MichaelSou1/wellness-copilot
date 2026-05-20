@@ -10,9 +10,12 @@ chat, fire for actual training questions).
 """
 import os
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import HumanMessage
 
+from ..config import DEFAULT_TIMEZONE
 from ..mcp_client import MCP_REGISTRY
 from ..tools import (
     add_injury,
@@ -21,6 +24,7 @@ from ..tools import (
     push_reminder,
     query_logs,
     retrieve_trainer_knowledge,
+    schedule_workout,
     set_dietary_goal,
     set_physical_stats,
     update_user_profile,
@@ -48,6 +52,7 @@ _TRAINER_TOOLS = [
     log_workout,
     query_logs,
     push_reminder,
+    schedule_workout,
 ]
 
 
@@ -371,6 +376,14 @@ def _episode_section(episode_context: str) -> str:
     )
 
 
+def _current_time_section() -> str:
+    try:
+        now = datetime.now(ZoneInfo(DEFAULT_TIMEZONE))
+    except Exception:
+        now = datetime.now()
+    return f"【当前日期时间】{now.strftime('%Y-%m-%d %H:%M')}（{DEFAULT_TIMEZONE}）\n"
+
+
 def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str = "", user_question: str = ""):
     peer_section = peer_notes_text if peer_notes_text else ""
     user_card = (pctx.get("role_user_cards") or {}).get("Trainer") or pctx.get("user_card") or "【关于该用户】\n用户画像暂不可用。"
@@ -386,6 +399,7 @@ def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str 
     )
     system_prompt = (
         "你是力量训练教练。\n\n"
+        f"{_current_time_section()}"
         f"{user_card}\n"
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
@@ -401,6 +415,8 @@ def _build_trainer_agent(pctx: dict, peer_notes_text: str, episode_context: str 
         "update_user_profile 仅作兼容兜底。"
         "如果用户要求安排、记录或完成训练，请调用 log_workout 写入本地训练日志；"
         "如果用户要求训练提醒，请调用 push_reminder；需要复盘近期训练时，先调用 query_logs(kind='workout')。"
+        "如果用户明确要求把训练、跑步或恢复安排加入 Apple Calendar / 苹果日历 / 日历，"
+        "请调用 schedule_workout；start_iso 必须使用 ISO 时间并带当前时区，若日期或时间缺失则先询问。"
         "【工具使用】当用户询问 TDEE、BMR、基础代谢、每日热量消耗或减脂/增肌热量起点时，"
         "若画像已有体重、身高、年龄，必须调用 calculate_tdee；回答中写明这是估算值，并给出活动系数/目标热量调整建议。"
         "若用户没有说明活动水平，不要只给默认久坐值；应说明活动水平未知，并给出久坐/中等活动/高活动量至少 2 个场景的 TDEE 估算或请用户补充活动量。"

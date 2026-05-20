@@ -1,13 +1,15 @@
-"""Turn-scoped multimodal grounding before specialist routing."""
+"""Turn-scoped image input collection before orchestrator tool use.
+
+This node deliberately does not call a VLM. The orchestrator receives the
+available image handles in state and can call its `multimodal_processor` tool
+when visual grounding is useful for the user's query.
+"""
 from __future__ import annotations
 
 import base64
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-
-from ..integrations.vision import analyze_meal_image
-from ..llm import extract_text_content
 
 
 def _latest_human_message(messages: list[Any]):
@@ -62,46 +64,14 @@ def _payload_for_vision(image: dict):
     return image.get("url") or image.get("media_id") or ""
 
 
-def _looks_like_meal_turn(text: str) -> bool:
-    if not text:
-        return True
-    meal_words = (
-        "餐",
-        "饭",
-        "吃",
-        "菜",
-        "热量",
-        "蛋白",
-        "碳水",
-        "脂肪",
-        "宏量",
-        "营养",
-        "增肌",
-        "减脂",
-        "meal",
-        "food",
-        "kcal",
-    )
-    return any(word in text.lower() for word in meal_words)
-
-
 def multimodal_preprocessor_node(state):
-    """Extract image parts and ground likely meal photos into state.
+    """Extract image parts into state.
 
-    Pure text turns return an empty update and do not call any vision model.
+    Pure text turns return an empty update. Image turns only expose normalized
+    handles to the orchestrator; the VLM call is done lazily through a tool.
     """
     latest = _latest_human_message(state.get("messages") or [])
     images = _extract_image_inputs(latest)
     if not images:
         return {}
-
-    user_text = extract_text_content(latest).strip()
-    update = {"image_inputs": images}
-    if not _looks_like_meal_turn(user_text):
-        return update
-
-    first_image = images[0]
-    meal = analyze_meal_image(_payload_for_vision(first_image))
-    if meal:
-        update["vision_extractions"] = {"meal": meal}
-    return update
+    return {"image_inputs": images}

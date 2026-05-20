@@ -38,7 +38,7 @@ def _deliver(row: dict) -> bool:
         print(f"[reminder_dispatcher] would push to wxid={target}: {text}")
         return False
     client = get_client()
-    client.push_to_user(str(target), str(text))
+    client.push_to_user(str(target), str(text), context_token=str(row.get("context_token") or ""))
     print(f"[reminder_dispatcher] pushed reminder id={row.get('id')} to wxid={target}")
     return True
 

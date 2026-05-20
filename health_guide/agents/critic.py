@@ -64,6 +64,11 @@ _FORBIDDEN_ACL_EXERCISE = re.compile(r"ACL|前交叉|韧带", re.IGNORECASE)
 _OPEN_CHAIN_KNEE_EXTENSION = re.compile(r"坐姿(?:腿屈伸|伸膝)|腿屈伸", re.IGNORECASE)
 _ACTUATION_RECORD_CLAIM = re.compile(r"已(?:经)?(?:帮你)?(?:记录|写入|保存)|已(?:经)?(?:安排|排好)", re.IGNORECASE)
 _ACTUATION_REMINDER_CLAIM = re.compile(r"已(?:经)?(?:帮你)?(?:设置|设好|创建|安排).{0,8}提醒|提醒已(?:设置|创建|写入)", re.IGNORECASE)
+_ACTUATION_CALENDAR_CLAIM = re.compile(
+    r"已(?:经)?(?:帮你)?(?:加入|添加|写入|同步|创建|安排).{0,12}(?:Apple\s*Calendar|苹果日历|日历|calendar)"
+    r"|(?:Apple\s*Calendar|苹果日历|日历|calendar).{0,12}已(?:经)?(?:加入|添加|写入|同步|创建|安排)",
+    re.IGNORECASE,
+)
 _PRECISE_NUTRITION_NUMBER = re.compile(r"\d+(?:\.\d+)?\s*(?:kcal|千卡|大卡|g|克)", re.IGNORECASE)
 
 
@@ -118,7 +123,7 @@ _CRITIC_SYSTEM = """\
 - 常见膳食/运动补剂（如肌酸、乳清蛋白、咖啡因、鱼油、维生素D）可给一般推荐摄入范围、频率与注意事项；这不视为处方药剂量越权
 - 跨专家事实性矛盾
 - 如果本轮已派出 Doctor，最终回答必须包含“仅供参考，如有不适请就医”；若缺失，请 REVISE 补上
-- Actuation 真实性：草稿若声称“已记录 / 已保存 / 已写入 / 已设提醒 / 已安排”，必须能在系统提供的 actuation_log 中看到对应 ok=true 的成功流水；否则 REVISE，删除或改成“可以帮你记录/建议设置”。
+- Actuation 真实性：草稿若声称“已记录 / 已保存 / 已写入 / 已设提醒 / 已安排 / 已加入日历”，必须能在系统提供的 actuation_log 中看到对应 ok=true 的成功流水；否则 REVISE，删除或改成“可以帮你记录/建议设置/需要先完成日历写入”。
 - Vision 置信度：若系统提供的 vision_extractions.meal.confidence < 0.5，草稿不得用确定语气给出精确热量或宏量营养素；必须写成粗估/区间/需用户补充确认。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -283,12 +288,20 @@ def _has_successful_action(actuation_log: list[dict], *prefixes: str) -> bool:
 def _actuation_claim_issue(draft: str, actuation_log: list[dict]) -> str:
     if _ACTUATION_REMINDER_CLAIM.search(draft or "") and not _has_successful_action(actuation_log, "push_reminder"):
         return "REMINDER"
+    if _ACTUATION_CALENDAR_CLAIM.search(draft or "") and not _has_successful_action(
+        actuation_log,
+        "schedule_calendar",
+        "schedule_workout",
+    ):
+        return "CALENDAR"
     if _ACTUATION_RECORD_CLAIM.search(draft or "") and not _has_successful_action(
         actuation_log,
         "log_meal",
         "log_workout",
         "log_wellness",
         "push_reminder",
+        "schedule_calendar",
+        "schedule_workout",
     ):
         return "RECORD"
     return ""
@@ -299,6 +312,14 @@ def _soften_unverified_actuation_claims(draft: str, issue: str) -> str:
     if issue == "REMINDER":
         text = re.sub(r"已(?:经)?(?:帮你)?(?:设置|设好|创建|安排).{0,8}提醒", "我建议你设置一个提醒", text)
         text = re.sub(r"提醒已(?:设置|创建|写入)", "提醒可以设置", text)
+        return text
+    if issue == "CALENDAR":
+        text = re.sub(
+            r"已(?:经)?(?:帮你)?(?:加入|添加|写入|同步|创建|安排).{0,12}(?:Apple\s*Calendar|苹果日历|日历|calendar)",
+            "可以加入日历，但需要先完成 Apple Calendar 写入",
+            text,
+            flags=re.IGNORECASE,
+        )
         return text
     if issue == "RECORD":
         text = re.sub(r"已(?:经)?(?:帮你)?(?:记录|写入|保存)", "建议记录", text)
