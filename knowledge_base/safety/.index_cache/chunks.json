@@ -1,0 +1,162 @@
+[
+  {
+    "chunk_id": "dietary_extreme_limits.md#chunk-1",
+    "source": "dietary_extreme_limits.md",
+    "text": "# 饮食极端限制红线\n\n## 热量底线（非医疗监督下）\n\n- 成年女性：每日热量摄入不得低于 **1200 kcal**\n- 成年男性：每日热量摄入不得低于 **1500 kcal**\n- 任何低于此阈值的方案必须在草稿中明确\"需医生 / 注册营养师监督\"。",
+    "page_range": null,
+    "section_id": "dietary_extreme_limits.md#section-1",
+    "section_path": "饮食极端限制红线 > 热量底线（非医疗监督下）",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "dietary_extreme_limits.md#chunk-2",
+    "source": "dietary_extreme_limits.md",
+    "text": "# 饮食极端限制红线\n\n## 蛋白质上限提醒\n\n- 健康成人长期超过 **2.2 g/kg 体重** 的蛋白质摄入建议提醒肝肾负担与水分平衡。\n- 已知肝肾基础疾病的用户不得给出超出常规的高蛋白方案。",
+    "page_range": null,
+    "section_id": "dietary_extreme_limits.md#section-2",
+    "section_path": "饮食极端限制红线 > 蛋白质上限提醒",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "dietary_extreme_limits.md#chunk-3",
+    "source": "dietary_extreme_limits.md",
+    "text": "# 饮食极端限制红线\n\n## 处方与诊断边界\n\n- 任何健康类回答不得给出：\n- 具体药物名称与剂量\n- 疾病诊断结论\n- \"服用 XX 即可改善 YY\" 这类治疗承诺\n- 常见膳食 / 运动补剂不同于处方药：可描述一般人群的推荐摄入范围、单位、频率与注意事项\n  （如肌酸一水合物每日 3-5 g），但不得声称治疗疾病。\n- 涉及孕期 / 哺乳期、肝肾疾病、慢病用药、抗凝 / 降压 / 甲状腺等相互作用风险、\n  或成分不明 / 大剂量补剂时，必须强调咨询医生 / 药师。",
+    "page_range": null,
+    "section_id": "dietary_extreme_limits.md#section-3",
+    "section_path": "饮食极端限制红线 > 处方与诊断边界",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "dietary_extreme_limits.md#chunk-4",
+    "source": "dietary_extreme_limits.md",
+    "text": "# 饮食极端限制红线\n\n## 慢病人群运动安全\n\n- 冠心病、糖尿病、未控制高血压用户被建议高强度间歇训练（HIIT）、Sprint 等高心率运动 → 必须先要求获得心内科 / 内分泌科许可。\n- 运动方案应优先低中强度有氧 + 抗阻，循序渐进。",
+    "page_range": null,
+    "section_id": "dietary_extreme_limits.md#section-4",
+    "section_path": "饮食极端限制红线 > 慢病人群运动安全",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "injury_loading_redlines.md#chunk-1",
+    "source": "injury_loading_redlines.md",
+    "text": "# 伤病期负重红线（运动安全）\n\n## ACL（前交叉韧带）撕裂 / 重建术后\n\n- 未获得运动医学医生或理疗师明确许可前，禁止任何形式的负重深蹲、负重弓步、单腿硬拉。\n- 即使是“箱式深蹲”“轻量深蹲”等降级动作，没有专业评估也不得给出动作建议。\n- 允许的替代方案：直腿抬高（SLR）、等长股四头收缩、桥式（仰卧屈膝）、水中训练、固定式自行车（无阻力起步）。",
+    "page_range": null,
+    "section_id": "injury_loading_redlines.md#section-1",
+    "section_path": "伤病期负重红线（运动安全） > ACL（前交叉韧带）撕裂 / 重建术后",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "injury_loading_redlines.md#chunk-2",
+    "source": "injury_loading_redlines.md",
+    "text": "# 伤病期负重红线（运动安全）\n\n## 半月板损伤 / 修复术后\n\n- 6 周内避免深蹲、跪姿动作、扭转加重的负重。\n- 任何膝关节屈曲超过 90° 的负重动作必须有理疗师监督。\n- 推荐替代：闭链小范围屈膝（30°–45°）、髋主导动作（保持膝关节角度小变化）。",
+    "page_range": null,
+    "section_id": "injury_loading_redlines.md#section-2",
+    "section_path": "伤病期负重红线（运动安全） > 半月板损伤 / 修复术后",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "injury_loading_redlines.md#chunk-3",
+    "source": "injury_loading_redlines.md",
+    "text": "# 伤病期负重红线（运动安全）\n\n## 椎间盘突出 / 急性腰背痛\n\n- 严禁负重屈髋（硬拉、罗马尼亚硬拉、负重 Good Morning）。\n- 不推荐高冲击（跳绳、跳箱、跑步）直到无痛 2 周以上。\n- 推荐替代：麦肯基伸展、核心等长训练（死虫、鸟狗）、髋关节铰链空载练习。",
+    "page_range": null,
+    "section_id": "injury_loading_redlines.md#section-3",
+    "section_path": "伤病期负重红线（运动安全） > 椎间盘突出 / 急性腰背痛",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "injury_loading_redlines.md#chunk-4",
+    "source": "injury_loading_redlines.md",
+    "text": "# 伤病期负重红线（运动安全）\n\n## 肩袖损伤 / 撞击综合征\n\n- 避免架前过头推举、宽握上拉、卧推到肩关节过度内旋的角度。\n- 推荐替代：钟摆运动、外旋肌群轻阻力训练、肩胛稳定（YTWL）。",
+    "page_range": null,
+    "section_id": "injury_loading_redlines.md#section-4",
+    "section_path": "伤病期负重红线（运动安全） > 肩袖损伤 / 撞击综合征",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "injury_loading_redlines.md#chunk-5",
+    "source": "injury_loading_redlines.md",
+    "text": "# 伤病期负重红线（运动安全）\n\n## 通用原则\n\n- 任何活跃伤病或康复中状态都意味着该部位**不直接负重**，除非有医疗许可且全程监督。\n- 出现剧烈疼痛、肿胀、热感、活动受限加重时立即停止训练并就医。\n- 不在草稿中以“可控”“轻度”“降级”等措辞模糊上述限制——风险不可掩盖。",
+    "page_range": null,
+    "section_id": "injury_loading_redlines.md#section-5",
+    "section_path": "伤病期负重红线（运动安全） > 通用原则",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-1",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n以下症状一旦在用户描述中出现，回答必须**首句直接建议就医**，再考虑提供任何辅助信息：",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-1",
+    "section_path": "症状描述必须先导向就医的清单",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-2",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 心血管类\n\n- 胸痛、胸闷、左肩或下颌放射痛 → 急诊评估\n- 静息心率持续偏高（>100）或异常跳动（漏拍、心悸） → 心内科评估\n- 运动后短时间内血压异常波动 → 心内科",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-2",
+    "section_path": "症状描述必须先导向就医的清单 > 心血管类",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-3",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 神经类\n\n- 头晕、眩晕、晕厥或近似晕厥 → 急诊或神经内科\n- 肢体麻木、刺痛、单侧无力 → 神经内科",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-3",
+    "section_path": "症状描述必须先导向就医的清单 > 神经类",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-4",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 骨关节类\n\n- 持续疼痛超过 72 小时不缓解 → 骨科 / 运动医学\n- 明显肿胀且不消退 → 骨科\n- 关节弹响伴疼痛或卡顿 → 运动医学",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-4",
+    "section_path": "症状描述必须先导向就医的清单 > 骨关节类",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-5",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 呼吸类\n\n- 静息呼吸困难、喘鸣 → 呼吸科或急诊\n- 运动诱发的反复哮喘样发作 → 呼吸科",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-5",
+    "section_path": "症状描述必须先导向就医的清单 > 呼吸类",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-6",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 慢性 / 全身\n\n- 无原因体重快速下降（一月 >5%） → 内科\n- 持续发热超过 3 天 → 内科\n- 长期失眠（>2 周）且影响日间功能 → 精神科 / 睡眠门诊",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-6",
+    "section_path": "症状描述必须先导向就医的清单 > 慢性 / 全身",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "symptom_seek_care_first.md#chunk-7",
+    "source": "symptom_seek_care_first.md",
+    "text": "# 症状描述必须先导向就医的清单\n\n## 写作结构（强制）\n\n1. **首句**：明确建议就医（\"请尽快就医 / 安排门诊\"）\n2. **次句**：说明就医方向（科室）\n3. **辅助**：可以补充缓解策略，但不能替代就医建议\n4. **禁止**：不得以\"可能原因 + 进一步问诊\"的方式替代就医",
+    "page_range": null,
+    "section_id": "symptom_seek_care_first.md#section-7",
+    "section_path": "症状描述必须先导向就医的清单 > 写作结构（强制）",
+    "section_index": 7,
+    "is_pdf": false
+  }
+]

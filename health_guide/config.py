@@ -41,6 +41,15 @@ ORCHESTRATOR_LLM_API_MODE = _api_mode("ORCHESTRATOR_LLM_API_MODE", LLM_API_MODE)
 ORCHESTRATOR_LLM_OUTPUT_VERSION = os.environ.get("ORCHESTRATOR_LLM_OUTPUT_VERSION") or LLM_OUTPUT_VERSION
 ORCHESTRATOR_LLM_DISABLE_THINKING = _env_bool("ORCHESTRATOR_LLM_DISABLE_THINKING", LLM_DISABLE_THINKING)
 
+# RAG 评测集生成专用 LLM：scripts/generate_eval_dataset.py 使用。
+# 默认继承 LLM_*，需要用便宜/批量友好的模型生成 query 时可单独覆盖。
+EVAL_DATASET_LLM_BASE_URL = os.environ.get("EVAL_DATASET_LLM_BASE_URL") or LLM_BASE_URL
+EVAL_DATASET_LLM_API_KEY = os.environ.get("EVAL_DATASET_LLM_API_KEY") or LLM_API_KEY
+EVAL_DATASET_LLM_MODEL = os.environ.get("EVAL_DATASET_LLM_MODEL") or LLM_MODEL
+EVAL_DATASET_LLM_API_MODE = _api_mode("EVAL_DATASET_LLM_API_MODE", LLM_API_MODE)
+EVAL_DATASET_LLM_OUTPUT_VERSION = os.environ.get("EVAL_DATASET_LLM_OUTPUT_VERSION") or LLM_OUTPUT_VERSION
+EVAL_DATASET_LLM_DISABLE_THINKING = _env_bool("EVAL_DATASET_LLM_DISABLE_THINKING", LLM_DISABLE_THINKING)
+
 # 长期记忆默认模板：用户画像 (User Profile)
 DEFAULT_USER_PROFILE = {
   "name": "User", # [示例] "Michael"
@@ -136,6 +145,48 @@ RAG_FALLBACK_EMBED_MODEL_NAME = os.environ.get(
 RAG_RETRIEVE_TOP_K = int(os.environ.get("RAG_RETRIEVE_TOP_K", "12"))
 # 第二阶段重排后返回数量
 RAG_FINAL_TOP_K = int(os.environ.get("RAG_FINAL_TOP_K", "4"))
+
+# RAG 长文档增强：
+# - hybrid retrieval: dense + 轻量 BM25 共同进入候选池，提升数字、食物名、
+#   专有名词、列表项等精确词命中。
+# - fine PDF chunking: PDF 结构块使用更小的 max length，并尽量不把多个列表项/
+#   表格块塞进同一个 child chunk。
+# - parent expansion: 先召回 PDF section parent，再把该 section 内最相关的 child
+#   chunks 补进候选池；默认以 gated rescue 方式启用，避免同章节噪声常驻排序。
+# - parent rerank context: 是否把 parent excerpt 注入 reranker 输入；默认关闭，
+#   避免章节长上下文稀释 child chunk 的局部证据。
+# - parent score fusion: 是否让 parent score 参与候选/最终分数；默认保留但低权重。
+# - neighbor context: 最终返回 PDF 命中时补前后相邻 chunk，降低答案跨 chunk 边界的风险。
+RAG_HYBRID_RETRIEVAL_ENABLED = _env_bool("RAG_HYBRID_RETRIEVAL_ENABLED", True)
+RAG_BM25_TOP_K = int(os.environ.get("RAG_BM25_TOP_K", "24"))
+RAG_BM25_SCORE_WEIGHT = float(os.environ.get("RAG_BM25_SCORE_WEIGHT", "0.18"))
+RAG_RERANK_POOL_MULTIPLIER = int(os.environ.get("RAG_RERANK_POOL_MULTIPLIER", "2"))
+RAG_RERANK_POOL_MAX = int(os.environ.get("RAG_RERANK_POOL_MAX", "30"))
+RAG_PDF_FINE_CHUNKING_ENABLED = _env_bool("RAG_PDF_FINE_CHUNKING_ENABLED", True)
+RAG_PDF_FINE_CHUNK_MAX_CHARS = int(os.environ.get("RAG_PDF_FINE_CHUNK_MAX_CHARS", "320"))
+RAG_PDF_PARENT_EXPANSION_ENABLED = _env_bool("RAG_PDF_PARENT_EXPANSION_ENABLED", True)
+RAG_PDF_PARENT_RESCUE_ENABLED = _env_bool("RAG_PDF_PARENT_RESCUE_ENABLED", True)
+RAG_PDF_PARENT_RESCUE_LOOKAHEAD = int(os.environ.get("RAG_PDF_PARENT_RESCUE_LOOKAHEAD", "10"))
+RAG_PDF_PARENT_RESCUE_MIN_PDF_CANDIDATES = int(
+    os.environ.get("RAG_PDF_PARENT_RESCUE_MIN_PDF_CANDIDATES", "2")
+)
+RAG_PDF_PARENT_RESCUE_MIN_PARENT_SCORE = float(
+    os.environ.get("RAG_PDF_PARENT_RESCUE_MIN_PARENT_SCORE", "0.56")
+)
+RAG_PDF_PARENT_RERANK_CONTEXT_ENABLED = _env_bool(
+    "RAG_PDF_PARENT_RERANK_CONTEXT_ENABLED",
+    False,
+)
+RAG_PDF_PARENT_SCORE_FUSION_ENABLED = _env_bool(
+    "RAG_PDF_PARENT_SCORE_FUSION_ENABLED",
+    True,
+)
+RAG_PDF_SECTION_PARENT_TOP_K = int(os.environ.get("RAG_PDF_SECTION_PARENT_TOP_K", "3"))
+RAG_PDF_SECTION_CHILD_TOP_K = int(os.environ.get("RAG_PDF_SECTION_CHILD_TOP_K", "8"))
+RAG_PDF_SECTION_PARENT_MAX_CHARS = int(os.environ.get("RAG_PDF_SECTION_PARENT_MAX_CHARS", "2400"))
+RAG_PDF_SECTION_SCORE_WEIGHT = float(os.environ.get("RAG_PDF_SECTION_SCORE_WEIGHT", "0.05"))
+RAG_PDF_RERANK_PARENT_CONTEXT_CHARS = int(os.environ.get("RAG_PDF_RERANK_PARENT_CONTEXT_CHARS", "120"))
+RAG_PDF_NEIGHBOR_CHUNKS = int(os.environ.get("RAG_PDF_NEIGHBOR_CHUNKS", "1"))
 
 # 编码和重排批大小（端侧可调，4060 8GB 默认较稳）
 RAG_EMBED_BATCH_SIZE = int(os.environ.get("RAG_EMBED_BATCH_SIZE", "32"))

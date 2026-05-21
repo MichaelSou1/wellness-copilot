@@ -1,0 +1,1192 @@
+[
+  {
+    "chunk_id": "cardio_protocols.md#chunk-1",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## WHO 推荐量\n\n- 18-64 岁成年人：每周 150-300 分钟中等强度 或 75-150 分钟高强度有氧。\n- 加上每周 ≥ 2 次全身力量训练。\n- 儿童青少年：每日 ≥ 60 分钟中等-高强度身体活动。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-1",
+    "section_path": "有氧训练方案（Trainer 私有） > WHO 推荐量",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-2",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 强度分级（心率法）\n\n- 最大心率（HRmax）估算：`208 − 0.7 × 年龄`。\n- Z1 极低强度：50%-60% HRmax，完全能说话。\n- Z2 中等低强度：60%-70% HRmax，能持续对话但有点气喘；脂肪氧化与基础耐力的核心区间。\n- Z3 中等高强度：70%-80% HRmax，只能短句说话。\n- Z4 高强度：80%-90% HRmax，接近乳酸阈值。\n- Z5 最大强度：> 90% HRmax，仅能短时间维持。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-2",
+    "section_path": "有氧训练方案（Trainer 私有） > 强度分级（心率法）",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-3",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 主观强度（RPE 1-10）\n\n- RPE 3-4：暖身/恢复。\n- RPE 5-6：Z2，可持续 60-120 分钟。\n- RPE 7-8：节奏跑、tempo。\n- RPE 9-10：冲刺、HIIT 间歇。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-3",
+    "section_path": "有氧训练方案（Trainer 私有） > 主观强度（RPE 1-10）",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-4",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 经典训练模式\n\n### LISS（低强度稳态）\n\n- 30-90 分钟 Z1-Z2；适合恢复日、减脂补充消耗、心血管基础建设。\n- 对关节友好，疲劳低，可以高频（4-6 次/周）。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-4",
+    "section_path": "有氧训练方案（Trainer 私有） > 经典训练模式 > LISS（低强度稳态）",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-5",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 经典训练模式\n\n### MISS（中等强度稳态）\n\n- 20-45 分钟 Z3；提高乳酸阈值与心肺效率。\n- 周 1-2 次。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-5",
+    "section_path": "有氧训练方案（Trainer 私有） > 经典训练模式 > MISS（中等强度稳态）",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-6",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 经典训练模式\n\n### HIIT（高强度间歇）\n\n- 经典 Tabata：20s 全力 / 10s 休息 × 8 轮 = 4 分钟。\n- 常用 1:1 或 1:2 比例：1 分钟 Z4-Z5 / 1-2 分钟 Z1 恢复。\n- 周 1-2 次，与力量训练日错开或间隔 24 小时。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-6",
+    "section_path": "有氧训练方案（Trainer 私有） > 经典训练模式 > HIIT（高强度间歇）",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-7",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 经典训练模式\n\n### SIT（冲刺间歇）\n\n- 10-30 秒最大输出 + 充分恢复（3-5 分钟）。\n- 对 VO2max 提升极高效，但需要良好基础，避免受伤。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-7",
+    "section_path": "有氧训练方案（Trainer 私有） > 经典训练模式 > SIT（冲刺间歇）",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-8",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 有氧 + 力量的冲突（Interference Effect）\n\n- 同一天做有氧与力量：先练重点目标。\n- 若目标是力量 / 肌肥大：力量优先，有氧安排在另一天或短时间 LISS。\n- 长时间高强度有氧（> 45 分钟 HIIT）与力量训练存在中等程度干扰。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-8",
+    "section_path": "有氧训练方案（Trainer 私有） > 有氧 + 力量的冲突（Interference Effect）",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-9",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 跑步起步示范（6 周跑 5 公里）\n\n- W1-W2：跑 1 分走 2 分 × 8 组（约 20-25 min），每周 3 次。\n- W3-W4：跑 2 分走 1 分 × 7 组。\n- W5：连续跑 15-20 分钟。\n- W6：完成 5 km 不停（配速不重要）。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-9",
+    "section_path": "有氧训练方案（Trainer 私有） > 跑步起步示范（6 周跑 5 公里）",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-10",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 常见错误\n\n- 每次都跑得太快 → 心肺疲劳、关节累积损伤；Z2 应占训练时间 70%-80%。\n- 跑鞋选错或超龄（> 600 km）→ 膝踝问题。\n- 忽略暖身冷身，增加拉伤与心血管应激风险。\n- 一上来做大量 HIIT：对新手与心血管高风险人群危险，应先建立 4-6 周 Z2 基础。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-10",
+    "section_path": "有氧训练方案（Trainer 私有） > 常见错误",
+    "section_index": 10,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "cardio_protocols.md#chunk-11",
+    "source": "cardio_protocols.md",
+    "text": "# 有氧训练方案（Trainer 私有）\n\n## 安全检查\n\n- 运动中胸痛、眩晕、单侧麻木 → 立即停止并就医。\n- 已诊断冠心病、严重高血压者，开始新的有氧计划前做运动负荷试验。\n- Trainer 只在医学风险排除或医生许可后设计强度进阶；红旗症状优先交给 Doctor。",
+    "page_range": null,
+    "section_id": "cardio_protocols.md#section-11",
+    "section_path": "有氧训练方案（Trainer 私有） > 安全检查",
+    "section_index": 11,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-1",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## Trainer 的任务边界\n\n- 负责动作选择、训练强度、容量、进阶、降阶和恢复安排。\n- 不诊断疼痛原因，不解释医学指标，不处理胸痛、头晕、晕厥、静息心率异常、血压/血糖失控。\n- 有红旗症状时先转 Doctor/医生；获得医学许可后再设计训练。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-1",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > Trainer 的任务边界",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-2",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 动作质量优先\n\n- 新动作先用低负荷学习动作轨迹，再增加重量。\n- 多数工作组建议 RPE 7-8，保留 1-3 次余力；新手和康复期可用 RPE 5-7。\n- 技术明显变形、疼痛改变发力、速度骤降时，应停止该组。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-2",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 动作质量优先",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-3",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 疼痛规则\n\n- 训练中的轻微肌肉酸胀可接受，锐痛、放射痛、麻木、关节卡顿或不稳感不可硬扛。\n- 训练后 24 小时内能恢复到基线，通常说明负荷较可控。\n- 若疼痛连续几次训练后加重，或出现肿胀、夜间痛、活动受限，应停止相关动作并转医生/理疗师。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-3",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 疼痛规则",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-4",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 常见降阶策略\n\n- 深蹲困难：箱式深蹲、杯式深蹲、腿举、小范围坐站。\n- 硬拉困难：髋铰链练习、壶铃硬拉、架上拉、臀桥。\n- 俯卧撑困难：墙壁俯卧撑、上斜俯卧撑、跪姿俯卧撑。\n- 引体困难：弹力带辅助、下拉、反向划船。\n- 跑步冲击大：快走、固定单车、椭圆机、游泳。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-4",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 常见降阶策略",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-5",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 膝痛训练原则\n\n- 避免一上来做深屈膝、大重量、跳跃、冲刺和急停变向。\n- 可从箱式深蹲、台阶上步、臀桥、髋外展、低阻力固定单车开始。\n- 膝盖轨迹尽量跟脚尖方向一致，避免疼痛范围内硬压深度。\n- 若有 ACL、半月板术后或明显肿胀卡顿，按 safety/Doctor 规则先获得医疗许可。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-5",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 膝痛训练原则",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-6",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 肩痛训练原则\n\n- 避免疼痛范围内过头推举、双杠臂屈伸、过深卧推和宽握直立划船。\n- 可从弹力带外旋、肩胛控制、墙壁俯卧撑、地板卧推等低风险动作开始。\n- 推类训练量先减半，拉类和肩胛稳定逐步补足。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-6",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 肩痛训练原则",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-7",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 腰背不适训练原则\n\n- 避免负重屈髋、疲劳状态下硬拉、负重扭转和高冲击动作。\n- 可用死虫、鸟狗、侧桥、臀桥和空载髋铰链重建控制。\n- 重返深蹲/硬拉前，应能无痛完成基础髋铰链和核心稳定。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-7",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 腰背不适训练原则",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "exercise_safety.md#chunk-8",
+    "source": "exercise_safety.md",
+    "text": "# 训练安全与动作降阶（Trainer 私有）\n\n## 恢复安排\n\n- 每周至少 1-2 天低强度或休息日。\n- 高强度腿部训练、HIIT、长跑不要连续堆叠。\n- 睡眠不足、压力极高或主观恢复差时，优先降低总组数 20%-40%，保留动作模式。",
+    "page_range": null,
+    "section_id": "exercise_safety.md#section-8",
+    "section_path": "训练安全与动作降阶（Trainer 私有） > 恢复安排",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-1",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 适用场景\n\n- 没有健身房、出差、在家办公。\n- 只有很有限的器械（弹力带、一对哑铃、单杠、瑜伽垫）。\n- 时间碎片，每次 20-40 分钟。",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-1",
+    "section_path": "居家训练方案（Trainer 私有） > 适用场景",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-2",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 只用徒手的全身计划（3 天/周）\n\n### Day A：下肢 + 核心\n\n- 高脚杯深蹲 / 徒手深蹲 4×12-15\n- 反向弓步 3×10/边\n- 单腿罗马尼亚硬拉 3×10/边\n- 臀桥 / 单腿臀桥 3×12-15\n- 平板支撑 3×30-60s\n- 死虫 3×10/边",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-2",
+    "section_path": "居家训练方案（Trainer 私有） > 只用徒手的全身计划（3 天/周） > Day A：下肢 + 核心",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-3",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 只用徒手的全身计划（3 天/周）\n\n### Day B：上肢推 + 核心\n\n- 俯卧撑（标准/上斜/下斜调整难度）4×AMRAP\n- 壁面 / 墙角倒立撑（进阶）3×5-8\n- 狭窄俯卧撑 3×10-12\n- 反向划船（桌下） 3×8-12\n- 超人式 3×12\n- 悬垂举腿 / 仰卧抬腿 3×10-15",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-3",
+    "section_path": "居家训练方案（Trainer 私有） > 只用徒手的全身计划（3 天/周） > Day B：上肢推 + 核心",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-4",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 只用徒手的全身计划（3 天/周）\n\n### Day C：上肢拉 + 腿\n\n- 引体 / 辅助引体 4×AMRAP\n- 弹力带下拉 3×12\n- 保加利亚分腿蹲 3×8-10/边\n- 腿弯举（哑铃/壶铃踝夹） 3×10-12\n- 弹力带面拉 3×15\n- 侧平板 3×30s/边",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-4",
+    "section_path": "居家训练方案（Trainer 私有） > 只用徒手的全身计划（3 天/周） > Day C：上肢拉 + 腿",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-5",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 弹力带 + 一对哑铃方案（4 天/周）\n\n### Day 1：腿臀\n\n- 哑铃高脚杯深蹲 4×10\n- 单腿罗马尼亚硬拉（哑铃）4×8/边\n- 弹力带侧步行走 3×12/边\n- 哑铃臀桥 3×15\n- 提踵 3×15",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-5",
+    "section_path": "居家训练方案（Trainer 私有） > 弹力带 + 一对哑铃方案（4 天/周） > Day 1：腿臀",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-6",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 弹力带 + 一对哑铃方案（4 天/周）\n\n### Day 2：推\n\n- 哑铃卧推（地板或瑜伽垫）4×8-10\n- 上斜俯卧撑 3×12-15\n- 哑铃肩上推 3×10\n- 哑铃侧平举 3×12-15\n- 哑铃三头过头伸 3×12",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-6",
+    "section_path": "居家训练方案（Trainer 私有） > 弹力带 + 一对哑铃方案（4 天/周） > Day 2：推",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-7",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 弹力带 + 一对哑铃方案（4 天/周）\n\n### Day 3：拉\n\n- 弹力带高位下拉 4×10-12\n- 哑铃单臂划船 4×10/边\n- 反向划船 3×AMRAP\n- 哑铃二头弯举 3×10-12\n- 面拉（带）3×15",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-7",
+    "section_path": "居家训练方案（Trainer 私有） > 弹力带 + 一对哑铃方案（4 天/周） > Day 3：拉",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-8",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 弹力带 + 一对哑铃方案（4 天/周）\n\n### Day 4：综合 + 有氧\n\n- 壶铃/哑铃摆摆（swing） 4×15\n- 哑铃 Thruster 4×8\n- 登山跑 3×30s\n- 波比跳 3×10\n- 平板撑 3×45s",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-8",
+    "section_path": "居家训练方案（Trainer 私有） > 弹力带 + 一对哑铃方案（4 天/周） > Day 4：综合 + 有氧",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-9",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 碎片时间微训练（20 分钟）\n\n- EMOM（每分钟做一组）：\n- 10 俯卧撑\n- 12 空蹲\n- 10 反向弓步\n- 30 秒平板\n- 循环 5 轮 = 20 分钟。\n- 特别适合没有整块时间的上班族、带娃父母。",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-9",
+    "section_path": "居家训练方案（Trainer 私有） > 碎片时间微训练（20 分钟）",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-10",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 技术与装备\n\n- 瑜伽垫：保护关节与地板。\n- 弹力带（一组不同阻力）：替代大量器械，便携最强。\n- 一对可调节哑铃（每只 5-25 kg）：覆盖大多数家庭训练需求。\n- 门框单杠（可拆卸）：解决所有拉类动作。\n- 代偿方案：没有哑铃用装满水的大瓶子；没有单杠用桌下反向划船。",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-10",
+    "section_path": "居家训练方案（Trainer 私有） > 技术与装备",
+    "section_index": 10,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "home_workout_plans.md#chunk-11",
+    "source": "home_workout_plans.md",
+    "text": "# 居家训练方案（Trainer 私有）\n\n## 安全提醒\n\n- 地板深蹲/弓步注意防滑（袜子 + 地板危险），必要时铺瑜伽垫或穿鞋。\n- 居家跳跃类动作考虑楼下邻居，选择静音动作或计时段。\n- 超出安全边界（如徒手倒立）建议先掌握渐进动作 3-6 个月再尝试。",
+    "page_range": null,
+    "section_id": "home_workout_plans.md#section-11",
+    "section_path": "居家训练方案（Trainer 私有） > 安全提醒",
+    "section_index": 11,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-1",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 热身目标（不是\"做做样子\"）\n\n- 提升核心体温 1-2°C，改善肌肉黏弹性。\n- 激活目标肌群与神经通路。\n- 扩大关节活动度（ROM）到训练所需范围。\n- 心理切换：从工作/通勤状态进入训练状态。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-1",
+    "section_path": "热身与灵活性（Trainer 私有） > 热身目标（不是\"做做样子\"）",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-2",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 热身三段结构（10-15 分钟）\n\n### 1) 一般热身 3-5 分钟\n\n- 低强度有氧（快走、椭圆机、划船机、跳绳），心率到 50%-60% HRmax。\n- 全身微微出汗即可。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-2",
+    "section_path": "热身与灵活性（Trainer 私有） > 热身三段结构（10-15 分钟） > 1) 一般热身 3-5 分钟",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-3",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 热身三段结构（10-15 分钟）\n\n### 2) 动态拉伸 / 动态流动 3-5 分钟\n\n- 世界最伟大拉伸（World's Greatest Stretch）：综合髋、胸椎、股后肌。\n- 猫驼式、鸟狗、死虫：脊柱与核心激活。\n- 动态髋内外旋、肩关节圆周、踝泵。\n- 避免长时间静态拉伸（> 60 秒）：可能短期降低最大力量输出。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-3",
+    "section_path": "热身与灵活性（Trainer 私有） > 热身三段结构（10-15 分钟） > 2) 动态拉伸 / 动态流动 3-5 分钟",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-4",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 热身三段结构（10-15 分钟）\n\n### 3) 专项激活 3-5 分钟\n\n- 下肢日：髋外展带、臀桥、空蹲、弓步。\n- 推日：肩袖外旋、YTW、壁面俯卧撑。\n- 拉日：肩胛收紧（面拉带）、悬吊肩胛收缩。\n- 专项逐组递增（warm-up sets）：目标重量的 40% / 60% / 80% 各做 1-2 组。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-4",
+    "section_path": "热身与灵活性（Trainer 私有） > 热身三段结构（10-15 分钟） > 3) 专项激活 3-5 分钟",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-5",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 静态拉伸的正确位置\n\n- 训练后 / 独立拉伸日做，有助于 ROM 改善与主观恢复感。\n- 每个动作 30-60 秒 × 2-3 组；呼吸深长，不要屏气。\n- 做到\"中等张力\"，不要暴力到疼痛点。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-5",
+    "section_path": "热身与灵活性（Trainer 私有） > 静态拉伸的正确位置",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-6",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 常见受限区域与对策\n\n### 髋关节活动度不足\n\n- 影响：深蹲深度、跨步、跑姿。\n- 针对：屈髋肌松解（沙发拉伸）、股四头肌 foam roll、动态弓步内旋。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-6",
+    "section_path": "热身与灵活性（Trainer 私有） > 常见受限区域与对策 > 髋关节活动度不足",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-7",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 常见受限区域与对策\n\n### 胸椎活动度不足\n\n- 影响：推举、硬拉锁紧、过头动作。\n- 针对：泡沫轴胸椎伸展、猫驼式、world's greatest stretch。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-7",
+    "section_path": "热身与灵活性（Trainer 私有） > 常见受限区域与对策 > 胸椎活动度不足",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-8",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 常见受限区域与对策\n\n### 踝背屈受限\n\n- 影响：蹲不下去、膝盖代偿向内。\n- 针对：负重墙壁踝背屈、滚小腿、距骨松动。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-8",
+    "section_path": "热身与灵活性（Trainer 私有） > 常见受限区域与对策 > 踝背屈受限",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-9",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 常见受限区域与对策\n\n### 肩关节活动度不足\n\n- 影响：肩上推、引体、深蹲杆位。\n- 针对：肩袖激活、墙上肩旋转、门框胸部拉伸。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-9",
+    "section_path": "热身与灵活性（Trainer 私有） > 常见受限区域与对策 > 肩关节活动度不足",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-10",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 泡沫轴与软组织放松\n\n- 训练前 30-90 秒/部位，作为激活前准备。\n- 训练后 1-2 分钟/部位，辅助血流与主观恢复。\n- 不能替代拉伸与力量训练；\"所有问题都用泡沫轴\"是误区。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-10",
+    "section_path": "热身与灵活性（Trainer 私有） > 泡沫轴与软组织放松",
+    "section_index": 10,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-11",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 案例：腿部训练日热身（12 分钟）\n\n1. 2 分钟椭圆机。\n2. 40 秒猫驼式 + 40 秒鸟狗。\n3. 8 次/边 动态弓步 + 胸椎旋转。\n4. 10 次空蹲 + 10 次箱臀桥。\n5. 30 秒 髋外展带行走（侧步+对角）。\n6. 深蹲 40%1RM × 5、60%1RM × 3、80%1RM × 1，再进入工作组。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-11",
+    "section_path": "热身与灵活性（Trainer 私有） > 案例：腿部训练日热身（12 分钟）",
+    "section_index": 11,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "mobility_warmup.md#chunk-12",
+    "source": "mobility_warmup.md",
+    "text": "# 热身与灵活性（Trainer 私有）\n\n## 避免的做法\n\n- 训练前长时间静态拉伸核心肌群（最大力量日尤其避免）。\n- 不热身直接进工作组 —— 受伤概率显著增加，尤其 > 30 岁人群。\n- 热身强度接近训练强度 —— 目的是准备，不是消耗。",
+    "page_range": null,
+    "section_id": "mobility_warmup.md#section-12",
+    "section_path": "热身与灵活性（Trainer 私有） > 避免的做法",
+    "section_index": 12,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-1",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 为什么要周期化\n\n- 身体适应刺激后回报递减，恒定计划 8-12 周后进步放缓。\n- 高训练量 + 高强度长期叠加，过度训练与伤病风险指数上升。\n- 周期化 = 有计划地变化训练量、强度与动作选择，制造新刺激并安排恢复。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-1",
+    "section_path": "周期化训练基础（Trainer 私有） > 为什么要周期化",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-2",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 基本结构\n\n- Macrocycle（大周期）：半年-一年，围绕重大目标（比赛、测试）。\n- Mesocycle（中周期）：3-6 周，一个训练主题（肌肥大、力量、峰值）。\n- Microcycle（小周期）：1 周，包括训练日、休息日、强度波动。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-2",
+    "section_path": "周期化训练基础（Trainer 私有） > 基本结构",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-3",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 常见周期模式\n\n### Linear（线性周期）\n\n- 随时间推移，量递减、强度递增。\n- 例：W1-4 肌肥大（5×10, 70%）→ W5-8 力量（5×5, 80%）→ W9-12 峰值（3×3, 90%）。\n- 适合准备单项目最大输出（如深蹲/卧推测试）。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-3",
+    "section_path": "周期化训练基础（Trainer 私有） > 常见周期模式 > Linear（线性周期）",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-4",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 常见周期模式\n\n### Undulating（波动周期）\n\n- 同一周内交替不同强度/量。\n- 例：周一 5×5 力量、周三 3×12 肌肥大、周五 4×8 中强度。\n- 对中级训练者效果良好，动作模式接触更频繁。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-4",
+    "section_path": "周期化训练基础（Trainer 私有） > 常见周期模式 > Undulating（波动周期）",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-5",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 常见周期模式\n\n### Block Periodization（板块周期）\n\n- 把训练目标切成独立板块，每块专注 2-6 周。\n- 例：积累块（大量）→ 转化块（高强度）→ 实现块（峰值/比赛）。\n- 适合高水平训练者和多能项运动员。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-5",
+    "section_path": "周期化训练基础（Trainer 私有） > 常见周期模式 > Block Periodization（板块周期）",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-6",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## Deload（减载周）\n\n- 每 4-8 周安排 1 周减量，训练量降到原计划 50%-60%，强度可保持。\n- 迹象：睡眠变差、主动关节痛、RPE 同重量连续升高、情绪下降 → 提前触发 deload。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-6",
+    "section_path": "周期化训练基础（Trainer 私有） > Deload（减载周）",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-7",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 肌肥大的中周期模板（6 周）\n\n- W1：MEV（Minimum Effective Volume）起步，每肌群 10-12 组。\n- W2-W5：每周 +1-2 组逐步逼近 MRV（Maximum Recoverable Volume）。\n- W6：deload（量减半）。\n- 进入下一个 6 周周期，起点比上一个周期稍高。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-7",
+    "section_path": "周期化训练基础（Trainer 私有） > 肌肥大的中周期模板（6 周）",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-8",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 力量周期模板（9 + 1 周）\n\n- W1-3：基础块，70%-75% 1RM，5×5。\n- W4-6：强度块，80%-85% 1RM，5×3。\n- W7-9：峰值块，88%-92% 1RM，3×2-3。\n- W10：测试或比赛。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-8",
+    "section_path": "周期化训练基础（Trainer 私有） > 力量周期模板（9 + 1 周）",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-9",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 新手 vs 中级 vs 高级\n\n- 新手（< 1 年）：不需要复杂周期，每次训练小幅加重即可。\n- 中级（1-3 年）：线性或波动周期，每 4-6 周换个侧重。\n- 高级（> 3 年）：板块化、共轭（conjugate）等更精细方法。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-9",
+    "section_path": "周期化训练基础（Trainer 私有） > 新手 vs 中级 vs 高级",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-10",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 常见误区\n\n- \"周期化 = 复杂\" → 本质只是量、强度、变化的规划。\n- 每周都变动作 → 缺少学习曲线积累；核心动作应贯穿一个中周期。\n- 忽视恢复：训练不是\"做得越多越好\"，是\"能恢复多少就做多少\"。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-10",
+    "section_path": "周期化训练基础（Trainer 私有） > 常见误区",
+    "section_index": 10,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "periodization_basics.md#chunk-11",
+    "source": "periodization_basics.md",
+    "text": "# 周期化训练基础（Trainer 私有）\n\n## 监测指标\n\n- 主观：RPE 与主观恢复量表（1-10）。\n- 客观：晨脉、静息心率趋势、HRV、工作组重量变化、睡眠质量。\n- 训练日志是周期化的\"地基\"；数据缺失时任何周期都只是纸上谈兵。",
+    "page_range": null,
+    "section_id": "periodization_basics.md#section-11",
+    "section_path": "周期化训练基础（Trainer 私有） > 监测指标",
+    "section_index": 11,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-1",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 为什么都需要力量训练\n\n- 增加/保留肌肉量，抵抗中年以后的肌少症（sarcopenia）。\n- 提升基础代谢率，改善胰岛素敏感性与骨密度。\n- 对体能、骨密度、胰岛素敏感性和日常功能有帮助；若已有慢病或指标控制不稳，训练强度需先经 Doctor/医生评估。\n- 每周 2-3 次，每次 30-60 分钟即可获得主要收益。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-1",
+    "section_path": "力量训练基础原则（Trainer 私有） > 为什么都需要力量训练",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-2",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 训练量（Volume）\n\n- 以\"有效组\"（接近力竭 0-3 次的组）计算。\n- 每周每肌群 10-20 组被认为是新手-中级肥大的合理区间。\n- 新手 10-12 组足够；高级训练者可到 20+ 组，但回报递减。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-2",
+    "section_path": "力量训练基础原则（Trainer 私有） > 训练量（Volume）",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-3",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 训练强度（Intensity）\n\n- 1RM：一次最大重复重量，常用百分比为 60%-85%。\n- 常见区间：\n- 力量：85%-95% 1RM，3-5 次/组。\n- 肥大：65%-85% 1RM，6-12 次/组。\n- 耐力：< 65% 1RM，15+ 次/组。\n- 主观强度 RPE：RPE 7-9 是大多数工作组的合理区间（剩余 1-3 次到力竭）。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-3",
+    "section_path": "力量训练基础原则（Trainer 私有） > 训练强度（Intensity）",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-4",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 频率（Frequency）\n\n- 同一肌群每周训练 2 次以上，显著优于每周 1 次。\n- 大块肌群（腿、背、胸）可分成 2 天练，每次部分动作。\n- 全身训练（full body）对时间紧张的新手性价比最高。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-4",
+    "section_path": "力量训练基础原则（Trainer 私有） > 频率（Frequency）",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-5",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 动作选择层级\n\n1. 复合动作（深蹲、硬拉、卧推、引体、推举、划船）—— 必选。\n2. 单关节辅助（二头弯举、三头下压、腓肠肌提踵、后三角飞鸟）—— 按弱点补。\n3. 机械 vs 自由重量：自由重量稳定性需求更高，机械动作学习成本低且安全。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-5",
+    "section_path": "力量训练基础原则（Trainer 私有） > 动作选择层级",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-6",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 渐进超负荷（Progressive Overload）\n\n- 通过以下维度之一持续进步：\n- 加重量（最直接）。\n- 增加次数（先拼到 reps 上限再加重）。\n- 增加组数。\n- 缩短组间休息（小心不要牺牲动作质量）。\n- 改善动作幅度与控制（慢速离心、全程幅度）。\n- 新手每次训练都能小幅加重；中级者以周/双周为单位；高级者以月为单位。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-6",
+    "section_path": "力量训练基础原则（Trainer 私有） > 渐进超负荷（Progressive Overload）",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-7",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 组间休息\n\n- 大重量复合动作：3-5 分钟。\n- 中等重量肥大动作：1.5-3 分钟。\n- 单关节孤立动作或 superset：30-90 秒。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-7",
+    "section_path": "力量训练基础原则（Trainer 私有） > 组间休息",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-8",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 动作质量守门\n\n- \"宁可少一组，不要多一次错\"。\n- 发力顺序、关节对齐、呼吸（发力呼气、离心吸气）优先于重量。\n- 动作学习阶段建议录像自检或请教练观察。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-8",
+    "section_path": "力量训练基础原则（Trainer 私有） > 动作质量守门",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "strength_training_fundamentals.md#chunk-9",
+    "source": "strength_training_fundamentals.md",
+    "text": "# 力量训练基础原则（Trainer 私有）\n\n## 新手示范周计划（3 天全身）\n\n- Day A：深蹲 3×6、卧推 3×6、划船 3×8、平板支撑 3×30s。\n- Day B：硬拉 3×5、推举 3×6、引体/下拉 3×6-10、悬挂举腿 3×10。\n- Day C：前蹲/腿推 3×8、上斜哑铃推 3×8、罗马尼亚硬拉 3×8、侧平举 3×12。\n- 每周加少量重量或多做 1 次，循环 8-12 周后评估。",
+    "page_range": null,
+    "section_id": "strength_training_fundamentals.md#section-9",
+    "section_path": "力量训练基础原则（Trainer 私有） > 新手示范周计划（3 天全身）",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-1",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 基本原则\n\n- 训练刺激只有在能恢复时才会变成适应。\n- 恢复差时优先降总量，保留关键动作模式和训练习惯。\n- Trainer 处理训练负荷和恢复安排；持续身体症状或医学红旗转 Doctor。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-1",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 基本原则",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-2",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 负荷变量\n\n- 强度：重量、速度、心率、RPE。\n- 容量：组数、次数、总跑量、训练时长。\n- 密度：组间休息、单位时间完成量。\n- 频率：每周训练次数。\n- 复杂度：动作技术难度、单腿/自由重量/冲击类动作。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-2",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 负荷变量",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-3",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 渐进超负荷\n\n- 可通过重量、次数、组数、动作幅度、控制质量或训练频率逐步增加。\n- 每次只优先推进一个变量，避免重量、组数和频率同时猛增。\n- 新手可每周小幅增加；中级训练者更适合 2-4 周一个进阶节奏。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-3",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 渐进超负荷",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-4",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 恢复不足信号\n\n- 同重量 RPE 连续升高，动作速度明显下降。\n- 睡眠变差、晨脉升高、训练前抗拒感明显。\n- 关节或肌腱不适持续存在，而不是普通肌肉酸痛。\n- 食欲异常、情绪烦躁、长期疲劳。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-4",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 恢复不足信号",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-5",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 调整策略\n\n- 轻度疲劳：当天总组数减少 20%-30%，强度保持中等。\n- 明显疲劳：改为技术练习、低强度有氧或活动度训练。\n- 局部疼痛：停止诱发动作，用无痛动作维持其他部位训练。\n- 连续 2 周恢复差：安排 deload，训练量降到平时 50%-60%。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-5",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 调整策略",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-6",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## Deload 减载周\n\n- 适合每 4-8 周安排一次，或在恢复指标明显变差时提前触发。\n- 可保留动作和中等重量，但减少组数、避免力竭和高冲击。\n- 减载不是停练，而是让身体吸收前期训练。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-6",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > Deload 减载周",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-7",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 睡眠不足时训练\n\n- 一晚没睡好：避免 1RM、冲刺、HIIT 和复杂高风险动作。\n- 可做 20-30 分钟低强度有氧、技术练习或轻量全身训练。\n- 连续睡眠不足：优先恢复睡眠，训练以维持习惯为目标。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-7",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 睡眠不足时训练",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-8",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 肌肉酸痛 DOMS\n\n- 常发生在新动作、离心训练或训练量突然增加后 24-72 小时。\n- 温和活动、低强度有氧、热身和睡眠有助于主观恢复。\n- 酸痛不是训练有效的必要指标；长期追求酸痛容易过量。\n- 若酸痛伴明显肿胀、无力、尿色异常或疼痛快速加重，应转 Doctor。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-8",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 肌肉酸痛 DOMS",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "training_recovery.md#chunk-9",
+    "source": "training_recovery.md",
+    "text": "# 训练恢复与负荷管理（Trainer 私有）\n\n## 回答模板\n\n- 先判断是否有红旗症状。\n- 再给当天训练调整：降量、替代动作、RPE 和时长。\n- 最后给 1-2 周进阶规则：无痛、24 小时恢复、RPE 稳定再加量。",
+    "page_range": null,
+    "section_id": "training_recovery.md#section-9",
+    "section_path": "训练恢复与负荷管理（Trainer 私有） > 回答模板",
+    "section_index": 9,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-1",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n- Source: https://www.who.int/news-room/fact-sheets/detail/physical-activity\n- Downloaded at (UTC): 2026-03-22T08:51:19.272105+00:00",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-1",
+    "section_path": "WHO - Physical activity (Fact sheet)",
+    "section_index": 1,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-2",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- Regular physical activity provides significant physical and mental health benefits.\n- In adults, physical activity contributes to prevention and management of noncommunicable diseases such as cardiovascular diseases, cancer and diabetes and reduces symptoms of depression and anxiety, enhances brain health, and can improve overall well-being.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-3",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- In adults, physical activity contributes to prevention and management of noncommunicable diseases such as cardiovascular diseases, cancer and diabetes and reduces symptoms of depression and anxiety, enhances brain health, and can improve overall well-being.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-4",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- In children and adolescents, physical activity promotes bone health, encourages healthy growth and development of muscle, and improves motor and cognitive development.\n- 31% of adults and 80% of adolescents do not meet the recommended levels of physical activity.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-5",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- 31% of adults and 80% of adolescents do not meet the recommended levels of physical activity.\n- The global target set to reduce levels of physical inactivity in adults and adolescents is a 10% relative reduction by 2025 and 15% by 2030, from the 2010 baseline.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-6",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- The global target set to reduce levels of physical inactivity in adults and adolescents is a 10% relative reduction by 2025 and 15% by 2030, from the 2010 baseline.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-7",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Key facts\n\n- The global estimate of the cost of physical inactivity to public health care systems between 2020 and 2030 is about US$ 300 billion (approximately US$ 27 billion per year) if levels of physical inactivity are not reduced.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-2",
+    "section_path": "WHO - Physical activity (Fact sheet) > Key facts",
+    "section_index": 2,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-8",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Overview\n\nWHO defines physical activity as any bodily movement produced by skeletal muscles that requires energy expenditure. Physical activity refers to all movement including during leisure time, for transport to get to and from places, or as part of a person’s work or domestic activities. Both moderate- and vigorous-intensity physical activity improve health.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-3",
+    "section_path": "WHO - Physical activity (Fact sheet) > Overview",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-9",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Overview\n\nBoth moderate- and vigorous-intensity physical activity improve health. Popular ways to be active include walking, cycling, wheeling, sports, active recreation and play, and can be done at any level of skill and for enjoyment by everybody.\nPhysical activity is beneficial to health and well-being and conversely, physical inactivity increases risk for noncommunicable",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-3",
+    "section_path": "WHO - Physical activity (Fact sheet) > Overview",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-10",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Overview\n\nto health and well-being and conversely, physical inactivity increases risk for noncommunicable diseases (NCDs) and other poor health outcomes. Together, physical inactivity and sedentary behaviours are contributing to the rise in NCDs and placing a burden on healthcare systems.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-3",
+    "section_path": "WHO - Physical activity (Fact sheet) > Overview",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-11",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Overview\n\nImproving levels of physical activity will benefit health and well-being and contribute to attainment of global NCD targets and a number of the Sustainable Development Goals. However, this will require increased commitments and investments by Member States; innovation and contributions from non-state actors; cross sector coordination and collaboration; and ongoing",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-3",
+    "section_path": "WHO - Physical activity (Fact sheet) > Overview",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-12",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Overview\n\nand contributions from non-state actors; cross sector coordination and collaboration; and ongoing guidance and monitoring from WHO.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-3",
+    "section_path": "WHO - Physical activity (Fact sheet) > Overview",
+    "section_index": 3,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-13",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\nPhysical inactivity is one of the leading risk factors for noncommunicable diseases mortality. People who are insufficiently active have a 20% to 30% increased risk of death compared to people who are sufficiently active. Regular physical activity is associated with:",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-14",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\n- in children and adolescents , improved physical fitness, cardiometabolic health, bone health, cognitive outcomes, mental health and reduced body fat;",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-15",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\n- in adults and older adults , reduced risk of all-cause mortality, risk of cardiovascular disease mortality, incident hypertension, incident site-specific cancers, incident type-2 diabetes, and falls and improved mental health, cognitive health, sleep and measures of body fat; and",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-16",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\n- for pregnant and post-partum women , decreased risk of pre-eclampsia, gestational hypertension, gestational diabetes, excessive gestational weight gain, delivery complications, postpartum depression and newborn complications.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-17",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\nPhysical activity has no adverse effects on birthweight or increased risk of stillbirth.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-18",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\nSedentary behaviour is any period of low-energy expenditure while awake such as sitting, reclining or lying. Lives are becoming increasingly sedentary through the use of motorized transport and the increased use of screens for work, education and recreation.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-19",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\nEvidence shows higher amounts of sedentary behaviour are associated with the following poor health outcomes:\n\n- in children and adolescents, increased adiposity, poorer cardiometabolic health, fitness, and behavioural conduct/pro-social behaviour, and reduced sleep duration; and",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-20",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\n- in children and adolescents, increased adiposity, poorer cardiometabolic health, fitness, and behavioural conduct/pro-social behaviour, and reduced sleep duration; and",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-21",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Benefits of physical activity and risks of sedentary behaviour and inactivity\n\n- in adults, increased all-cause mortality, cardiovascular disease mortality and cancer mortality and incidence of cardiovascular disease, cancer and type-2 diabetes.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-4",
+    "section_path": "WHO - Physical activity (Fact sheet) > Benefits of physical activity and risks of sedentary behaviour and inactivity",
+    "section_index": 4,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-22",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How much physical activity is recommended?\n\nThe WHO Global guidelines on physical activity and sedentary behaviour provide recommendations for children (age 5 and up), adolescents, adults, older adults, pregnant and post-partum women, and people living with chronic conditions and disabilities.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-5",
+    "section_path": "WHO - Physical activity (Fact sheet) > How much physical activity is recommended?",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-23",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How much physical activity is recommended?\n\nThe recommendations detail the amount of physical activity (frequency, intensity and duration) required to offer significant health benefits and to reduce health risks. The guidelines highlight that any amount of physical activity is better than none; all physical activity counts; all age groups should limit the amount of time bein",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-5",
+    "section_path": "WHO - Physical activity (Fact sheet) > How much physical activity is recommended?",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-24",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How much physical activity is recommended?\n\nbetter than none; all physical activity counts; all age groups should limit the amount of time being sedentary; and muscle strengthening benefits everyone.\nThe WHO Guidelines on physical activity, sedentary behaviour and sleep for children under 5 years of age provide recommendations on the amount of time in a 24-hour day that youn",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-5",
+    "section_path": "WHO - Physical activity (Fact sheet) > How much physical activity is recommended?",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-25",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How much physical activity is recommended?\n\nunder 5 years of age provide recommendations on the amount of time in a 24-hour day that young children, under 5 years of age, should spend being physically active or sleeping for their health and well-being, and the maximum recommended time these children should spend on screen-based sedentary activities or time restrained.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-5",
+    "section_path": "WHO - Physical activity (Fact sheet) > How much physical activity is recommended?",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-26",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How much physical activity is recommended?\n\nAn infographic summarizes the current WHO guidelines on physical activity and sedentary behaviour for all age groups. WHO develops guidelines through an arduous process of reviewing scientific evidence and expert consultations. Preparations are already underway for the next guidelines, anticipated for publication in 2030.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-5",
+    "section_path": "WHO - Physical activity (Fact sheet) > How much physical activity is recommended?",
+    "section_index": 5,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-27",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\nWHO regularly monitors trends in physical inactivity. A recent study (1) found that nearly one third (31%) of the world’s adult population, 1.8 billion adults, are physically inactive. That is, they do not meet the global recommendations of at least 150 minutes of moderate-intensity physical activity per week. This is an increase of 5",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-28",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\nof at least 150 minutes of moderate-intensity physical activity per week. This is an increase of 5 percentage points between 2010 and 2022. If this trend continues, the proportion of adults not meeting recommended levels of physical activity is projected to rise to 35% by 2030.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-29",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\nGlobally, there are notable age and gender differences in levels of physical inactivity.\n\n- Women are less active than men by an average of 5 percentage points. This has not changed since 2000.\n- After 60 years of age physical inactivity levels increase in both men and women.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-30",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\n- Women are less active than men by an average of 5 percentage points. This has not changed since 2000.\n- After 60 years of age physical inactivity levels increase in both men and women.\n- 81% of adolescents (aged 11–17 years) were physically inactive (2) .",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-31",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\n- After 60 years of age physical inactivity levels increase in both men and women.\n- 81% of adolescents (aged 11–17 years) were physically inactive (2) .\n- Adolescent girls were less active than adolescent boys, with 85% vs. 78%, not meeting WHO guidelines.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-32",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\n- Adolescent girls were less active than adolescent boys, with 85% vs. 78%, not meeting WHO guidelines.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-33",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## Levels of physical inactivity globally\n\nMany different factors can determine how active people are and the overall levels of physical activity in different population groups. These factors can be related to the individual or wider social, cultural, environmental and economic determinants that influence access and opportunities to be active in safe and enjoyable ways.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-6",
+    "section_path": "WHO - Physical activity (Fact sheet) > Levels of physical inactivity globally",
+    "section_index": 6,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-34",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\nThe WHO Global action plan on physical activity provides policy recommendations for countries and communities to promote physical activity and ensure everyone has more opportunities to be regularly active.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-35",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\nExamples of these recommendations include policies that ensure access to walking, cycling and non-motorized transport; that increase physical activity opportunities in schools, workplaces, childcare centres and in healthcare service delivery; and that increase accessibility and availability of community sports and p",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-36",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\nservice delivery; and that increase accessibility and availability of community sports and public open spaces.\nImplementing effective policies to increase levels of physical activity requires a collective effort, coordinated across multiple government departments at all levels, including health, transport, education",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-37",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\nacross multiple government departments at all levels, including health, transport, education, employment, sport and recreation, and urban planning. It also demands national and local engagement from nongovernmental organizations, various sectors, stakeholders and disciplines to support the implementation of policies",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-38",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\nvarious sectors, stakeholders and disciplines to support the implementation of policies and solutions that are appropriate to a country’s cultural and social environment. Priority should be given to policy actions that address disparities in levels of physical activity, promoting, enabling and encouraging physical a",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-39",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## How Member States can increase levels of physical activity\n\naddress disparities in levels of physical activity, promoting, enabling and encouraging physical activity for all.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-7",
+    "section_path": "WHO - Physical activity (Fact sheet) > How Member States can increase levels of physical activity",
+    "section_index": 7,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-40",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\nWHO supports countries and stakeholders to implement the recommended actions by:\n\n- developing global policy guidance and guidelines, underpinned by latest evidence and consensus;\n- supporting countries to develop appropriate policies that promote physical activity and multisectoral collaborations;",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-41",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- supporting countries to develop appropriate policies that promote physical activity and multisectoral collaborations;",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-42",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- conducting advocacy to raise awareness of the multiple benefits of increasing physical activity and support the development of economic analysis of the impact of increasing physical activity and return on investment of different policy interventions;",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-43",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- developing technical tools and training packages to help countries build capacity in the implementation of policy and programmes across key settings and innovations using digital platforms including through WHO Academy courses, multi-country workshops and other knowledge exchange activities;",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-44",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- convening, coordinating, and collaborating to strengthen partnerships across sectors and between policy makers, practitioners and researcher communities; and",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-45",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- undertaking global monitoring and reporting of progress on implementation of the Global action plan on physical activity, global levels of physical inactivity and progress towards a 15% relative reduction in the prevalence of physical inactivity by 2030.",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-46",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\nWHO supports countries and stakeholders to implement the recommended actions by developing global policy guidance and guidelines, underpinned by latest evidence and consensus, to help countries develop appropriate policies, investment cases and financing mechanisms.\nReferences",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-47",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- Strain, T., Flaxman, S., et al. National, regional, and global trends in insufficient physical activity among adults from 2000 to 2022: a pooled analysis of 507 population-based surveys with 5·7 million participants. The Lancet Global Health (2024).",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  },
+  {
+    "chunk_id": "who_physical_activity.md#chunk-48",
+    "source": "who_physical_activity.md",
+    "text": "# WHO - Physical activity (Fact sheet)\n\n## WHO response\n\n- Guthold, R., Stevens, G., et al. Global trends in insufficient physical activity among adolescents: a pooled analysis of 298 population-based surveys with 1.6 million participants. The Lancet Child & Adolescent Health Vol. 4 Iss. 1 (2019).",
+    "page_range": null,
+    "section_id": "who_physical_activity.md#section-8",
+    "section_path": "WHO - Physical activity (Fact sheet) > WHO response",
+    "section_index": 8,
+    "is_pdf": false
+  }
+]

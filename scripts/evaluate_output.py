@@ -26,7 +26,7 @@ Usage:
         --dataset eval/output_eval_dataset.jsonl \\
         --out reports/output_eval_report.json
 
-Output:  reports/output_eval_report.json
+Output:  reports/output_eval_report_YYYYMMDD-HHMMSS.json
 """
 
 import argparse
@@ -46,6 +46,30 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+
+def _timestamped_report_path(
+    path: Path,
+    timestamp: str,
+    default_stem: str,
+    raw_path: str = "",
+) -> Path:
+    raw = raw_path or str(path)
+    if raw.endswith(("/", "\\")) or (path.exists() and path.is_dir()):
+        candidate = path / f"{default_stem}_{timestamp}.json"
+    elif path.suffix:
+        candidate = path.with_name(f"{path.stem}_{timestamp}{path.suffix}")
+    else:
+        candidate = path.with_name(f"{path.name}_{timestamp}.json")
+
+    if not candidate.exists():
+        return candidate
+    for idx in range(2, 1000):
+        deduped = candidate.with_name(f"{candidate.stem}-{idx}{candidate.suffix}")
+        if not deduped.exists():
+            return deduped
+    raise FileExistsError(f"Could not find a free report path near {candidate}")
+
 
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
@@ -1497,7 +1521,10 @@ def main() -> None:
     parser.add_argument(
         "--out",
         default="reports/output_eval_report.json",
-        help="Output report path",
+        help=(
+            "Base output report path. A timestamp is inserted before the suffix "
+            "to avoid overwriting previous reports."
+        ),
     )
     parser.add_argument(
         "--samples",
@@ -1643,8 +1670,19 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Aggregate and write report
     # ------------------------------------------------------------------
-    out_path = PROJECT_ROOT / args.out
+    run_dt = datetime.now().astimezone()
+    timestamp = run_dt.strftime("%Y%m%d-%H%M%S")
+    out_path = _timestamped_report_path(
+        PROJECT_ROOT / args.out,
+        timestamp,
+        "output_eval_report",
+        args.out,
+    )
     report = _aggregate(final_results, args.dataset, not args.no_judge)
+    report["report_title"] = f"Output Eval Report {timestamp}"
+    report["generated_at"] = run_dt.isoformat(timespec="seconds")
+    report["requested_out"] = args.out
+    report["report_path"] = str(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 

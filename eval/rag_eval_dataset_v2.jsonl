@@ -364,8 +364,8 @@
 {"query": "如果想找关于疼痛机制的中文入门材料，有哪些推荐的书或免费课程？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-6"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
 {"query": "做自我跟踪时，除了给疼痛打分，还建议记录哪一类表现？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-10"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
 {"query": "每周记录疼痛情况时，通常要记下哪几种程度的分数？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-10"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
-{"query": "一直躺着休息不动，会不会让长期疼痛更严重？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-11"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
-{"query": "出现慢性疼痛时，是不是一定能查到某一个具体受损的部位？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-11"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
+{"query": "一直躺着休息不动，会不会让长期疼痛更严重？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-3"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
+{"query": "出现慢性疼痛时，是不是一定能查到某一个具体受损的部位？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:chronic_pain_management.md#chunk-2"], "relevant_sources": ["psychologist/chronic_pain_management.md"]}
 {"query": "做正念练习时，重点是把脑子里的想法全部赶走吗？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:meditation_mindfulness.md#chunk-1"], "relevant_sources": ["psychologist/meditation_mindfulness.md"]}
 {"query": "正念这种方法强调的是用什么样的态度去留意当下体验？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:meditation_mindfulness.md#chunk-1"], "relevant_sources": ["psychologist/meditation_mindfulness.md"]}
 {"query": "正念减压这个项目通常要持续多长时间？", "agent": "psychologist", "relevant_chunk_ids": ["psychologist:meditation_mindfulness.md#chunk-6"], "relevant_sources": ["psychologist/meditation_mindfulness.md"]}
