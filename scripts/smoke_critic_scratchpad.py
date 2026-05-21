@@ -13,8 +13,8 @@ if ROOT not in sys.path:
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide.graph import graph  # noqa: E402
-from health_guide.llm import extract_text_content  # noqa: E402
+from wellness_copilot.graph import graph  # noqa: E402
+from wellness_copilot.llm import extract_text_content  # noqa: E402
 
 
 def run_turn(thread_id: str, user_id: str, query: str) -> None:
@@ -81,7 +81,7 @@ def run_turn(thread_id: str, user_id: str, query: str) -> None:
 def main():
     thread_id = str(uuid.uuid4())
     user_id = "smoke_test_user"
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
 
     # Turn 1: cross-domain question that should fan out to multiple experts.
     run_turn(thread_id, user_id, "我刚练完腿，今晚应该吃什么帮助恢复？")

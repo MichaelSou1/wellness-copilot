@@ -6,7 +6,7 @@ optionally exercises one tool per server end-to-end (sync invoke that crosses
 the dedicated event-loop thread back to the npx subprocess).
 
 This isn't a unit test — it's a CI/local sanity check. The runtime that owns
-the MCP subprocesses lives in ``health_guide/mcp_client.py``; the smoke just
+the MCP subprocesses lives in ``wellness_copilot/mcp_client.py``; the smoke just
 verifies the wiring.
 
 Run: python scripts/smoke_mcp_tools.py
@@ -20,8 +20,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide import config  # noqa: E402
-from health_guide.mcp_client import MCP_REGISTRY  # noqa: E402
+from wellness_copilot import config  # noqa: E402
+from wellness_copilot.mcp_client import MCP_REGISTRY  # noqa: E402
 
 
 _SAMPLE_INVOCATIONS = {

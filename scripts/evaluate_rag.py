@@ -1034,10 +1034,10 @@ def _pretty_print_summary(report: Dict[str, object]) -> None:
 
 def main():
     from pathlib import Path as _Path
-    from health_guide import config as rag_config
-    from health_guide.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
-    import health_guide.rag as rag_module
-    from health_guide.rag import LocalKnowledgeBase
+    from wellness_copilot import config as rag_config
+    from wellness_copilot.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
+    import wellness_copilot.rag as rag_module
+    from wellness_copilot.rag import LocalKnowledgeBase
 
     parser = argparse.ArgumentParser(
         description=(

@@ -5,7 +5,7 @@ Use this before the current server expires or when moving to a new machine.
 ## Source Machine
 
 ```bash
-cd health-guide
+cd wellness-copilot
 python - <<'PY'
 from scripts.backup_loop import run_backup_once
 print(run_backup_once())
@@ -25,8 +25,8 @@ Confirm the latest backup contains at least:
 ## Target Machine
 
 ```bash
-git clone <repo-url> health-guide
-cd health-guide
+git clone <repo-url> wellness-copilot
+cd wellness-copilot
 cp .env.example .env
 vim .env
 mkdir -p data logs reports tmp
@@ -37,8 +37,8 @@ docker compose up -d --build
 Then validate:
 
 ```bash
-docker exec hga-worker python -c "from health_guide.integrations.local_logs import query_logs; print(query_logs.invoke({'kind':'all','days_back':30})[:500])"
-docker exec hga-worker python scripts/setup_icloud_caldav.py
+docker exec wellness-copilot-worker python -c "from wellness_copilot.integrations.local_logs import query_logs; print(query_logs.invoke({'kind':'all','days_back':30})[:500])"
+docker exec wellness-copilot-worker python scripts/setup_icloud_caldav.py
 docker compose logs --tail=100 worker dispatcher
 ```
 

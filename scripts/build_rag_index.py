@@ -9,8 +9,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 def main():
-    from health_guide.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
-    from health_guide.rag import LocalKnowledgeBase
+    from wellness_copilot.config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
+    from wellness_copilot.rag import LocalKnowledgeBase
 
     parser = argparse.ArgumentParser(description="Offline prebuild for local RAG embeddings/index cache.")
     parser.add_argument("--kb-dir", default=KNOWLEDGE_BASE_DIR, help="Knowledge base directory path")

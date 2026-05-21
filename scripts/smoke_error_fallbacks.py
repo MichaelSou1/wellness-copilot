@@ -24,7 +24,7 @@ class PassLLM:
 
 
 def test_orchestrator_fresh_fallback():
-    import health_guide.agents.orchestrator as orchestrator
+    import wellness_copilot.agents.orchestrator as orchestrator
 
     old_llm = orchestrator.llm
     orchestrator.llm = RaisingLLM()
@@ -41,7 +41,7 @@ def test_orchestrator_fresh_fallback():
 
 
 def test_rag_tool_error_fallback():
-    import health_guide.tools as tools
+    import wellness_copilot.tools as tools
 
     class BadKB:
         def retrieve(self, query, top_k):
@@ -65,13 +65,13 @@ def test_expert_failure_graph_continues():
     from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, StateGraph
 
-    import health_guide.agents.critic as critic
-    import health_guide.agents.dispatcher as dispatcher_mod
-    from health_guide.agents.aggregator import aggregator_node
-    from health_guide.agents.dispatcher import dispatcher_node
-    from health_guide.graph import _route_after_dispatch, _route_after_judge
-    from health_guide.agents.replan_judge import replan_judge_node
-    from health_guide.state import AgentState
+    import wellness_copilot.agents.critic as critic
+    import wellness_copilot.agents.dispatcher as dispatcher_mod
+    from wellness_copilot.agents.aggregator import aggregator_node
+    from wellness_copilot.agents.dispatcher import dispatcher_node
+    from wellness_copilot.graph import _route_after_dispatch, _route_after_judge
+    from wellness_copilot.agents.replan_judge import replan_judge_node
+    from wellness_copilot.state import AgentState
 
     def boom(*args, **kwargs):
         raise RuntimeError("forced expert failure")
@@ -139,7 +139,7 @@ def test_expert_failure_graph_continues():
 
 
 def test_aggregator_llm_fallback():
-    import health_guide.agents.aggregator as aggregator
+    import wellness_copilot.agents.aggregator as aggregator
 
     old_llm = aggregator.llm
     aggregator.llm = RaisingLLM()
@@ -164,7 +164,7 @@ def test_aggregator_llm_fallback():
 
 
 def test_critic_error_guard_adds_warning():
-    import health_guide.agents.critic as critic
+    import wellness_copilot.agents.critic as critic
 
     old_llm = critic.llm
     critic.llm = RaisingLLM()

@@ -1,4 +1,4 @@
-"""End-to-end output quality evaluation for Health Guide Agent.
+"""End-to-end output quality evaluation for Wellness Copilot.
 
 Runs the full LangGraph pipeline on a benchmark dataset, then scores each
 answer with two complementary methods:
@@ -73,10 +73,10 @@ def _timestamped_report_path(
 
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 
-from health_guide.graph import graph  # noqa: E402
-from health_guide.llm import create_llm, extract_text_content  # noqa: E402
-from health_guide.profile_store import update_user_profile  # noqa: E402
-from health_guide import config as _cfg  # noqa: E402
+from wellness_copilot.graph import graph  # noqa: E402
+from wellness_copilot.llm import create_llm, extract_text_content  # noqa: E402
+from wellness_copilot.profile_store import update_user_profile  # noqa: E402
+from wellness_copilot import config as _cfg  # noqa: E402
 
 
 _PROFILE_TLS = threading.local()
@@ -511,7 +511,7 @@ def _model_name_from_llm(llm_obj, result=None) -> str:
 def _profile_graph_execution(profiler: _GraphProfiler):
     """Temporarily instrument graph LLM calls for one evaluation sample."""
     from langchain_openai import ChatOpenAI
-    import health_guide.agents.dispatcher as dispatcher_mod
+    import wellness_copilot.agents.dispatcher as dispatcher_mod
 
     global _ACTIVE_PROFILER
 
@@ -1511,7 +1511,7 @@ def _print_summary(report: dict, no_judge: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Evaluate Health Guide Agent end-to-end output quality",
+        description="Evaluate Wellness Copilot end-to-end output quality",
     )
     parser.add_argument(
         "--dataset",
@@ -1633,7 +1633,7 @@ def main() -> None:
                 sys.exit(1)
 
     print(f"{'='*64}")
-    print(f"Health Guide Agent — Output Quality Evaluation")
+    print(f"Wellness Copilot — Output Quality Evaluation")
     mode_label = f"rerun ({len(samples)} samples)" if args.rerun else f"{len(samples)} samples"
     print(f"Dataset : {args.dataset}  ({mode_label})")
     print(f"Judge   : {'disabled (--no-judge)' if args.no_judge else 'enabled'}")

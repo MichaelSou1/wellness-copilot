@@ -5,7 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from health_guide.rag import Chunk, LocalKnowledgeBase, PAGE_SEPARATOR, SectionParent  # noqa: E402
+from wellness_copilot.rag import Chunk, LocalKnowledgeBase, PAGE_SEPARATOR, SectionParent  # noqa: E402
 
 
 def _chunk_texts(text: str, **kwargs):
@@ -155,7 +155,7 @@ def test_pdf_neighbor_context_expands_final_content():
 
 def test_pdf_parent_candidates_survive_beyond_visible_dense_top_k():
     import numpy as np
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [
@@ -208,7 +208,7 @@ def test_pdf_parent_candidates_survive_beyond_visible_dense_top_k():
 
 def test_pdf_parent_expansion_can_be_disabled():
     import numpy as np
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [
@@ -253,7 +253,7 @@ def test_pdf_parent_expansion_can_be_disabled():
 
 def test_pdf_parent_score_fusion_can_be_disabled():
     import numpy as np
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [
@@ -302,7 +302,7 @@ def test_pdf_parent_score_fusion_can_be_disabled():
 
 def test_hybrid_bm25_adds_lexical_candidate_to_pool():
     import numpy as np
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [
@@ -333,7 +333,7 @@ def test_hybrid_bm25_adds_lexical_candidate_to_pool():
 
 def test_gated_parent_rescue_skips_when_pdf_candidates_are_present():
     import numpy as np
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [
@@ -428,7 +428,7 @@ def test_pdf_rerank_text_excludes_section_parent_by_default():
 
 
 def test_pdf_rerank_text_can_include_section_parent():
-    import health_guide.rag as rag_module
+    import wellness_copilot.rag as rag_module
 
     kb = LocalKnowledgeBase(min_chunk_chars=1)
     kb.chunks = [

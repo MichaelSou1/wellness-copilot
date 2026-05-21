@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide.integrations.local_logs import (  # noqa: E402
+from wellness_copilot.integrations.local_logs import (  # noqa: E402
     bind_wechat_user,
     default_wechat_project_user_id,
     get_wechat_binding,
@@ -18,7 +18,7 @@ from health_guide.integrations.local_logs import (  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Bind a WeChat wxid to a Health Guide project user_id")
+    parser = argparse.ArgumentParser(description="Bind a WeChat wxid to a Wellness Copilot project user_id")
     parser.add_argument("--wxid", help="WeChat user_wxid from worker logs or wechat_inbox")
     parser.add_argument("--user-id", help="Project user_id used by profile/memory/logs/checkpoints")
     parser.add_argument("--display-name", default="", help="Optional human label for this binding")

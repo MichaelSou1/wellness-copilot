@@ -1,5 +1,5 @@
 param(
-  [string]$EnvName = "health-guide-rag"
+  [string]$EnvName = "wellness-copilot-rag"
 )
 
 $ErrorActionPreference = "SilentlyContinue"

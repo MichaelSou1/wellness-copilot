@@ -1,7 +1,7 @@
 services:
   worker:
     build: .
-    container_name: hga-worker
+    container_name: wellness-copilot-worker
     restart: always
     env_file: .env
     environment:
@@ -23,14 +23,14 @@ services:
       - ./tmp:/app/tmp
     command: ["python", "scripts/wechat_ilink_worker.py"]
     healthcheck:
-      test: ["CMD", "python", "-c", "from health_guide.integrations.local_logs import _ensure_init; _ensure_init()"]
+      test: ["CMD", "python", "-c", "from wellness_copilot.integrations.local_logs import _ensure_init; _ensure_init()"]
       interval: 30s
       timeout: 5s
       retries: 3
 
   dispatcher:
     build: .
-    container_name: hga-dispatcher
+    container_name: wellness-copilot-dispatcher
     restart: always
     env_file: .env
     environment:
@@ -46,7 +46,7 @@ services:
 
   backup:
     build: .
-    container_name: hga-backup
+    container_name: wellness-copilot-backup
     restart: always
     env_file: .env
     environment:

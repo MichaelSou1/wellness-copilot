@@ -10,8 +10,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide.episode_memory import EpisodeMemory  # noqa: E402
-from health_guide.episode_store import _read_store  # noqa: E402
+from wellness_copilot.episode_memory import EpisodeMemory  # noqa: E402
+from wellness_copilot.episode_store import _read_store  # noqa: E402
 
 
 def main():

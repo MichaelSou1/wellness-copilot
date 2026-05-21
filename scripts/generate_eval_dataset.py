@@ -100,8 +100,8 @@ def collect_all_chunks(
     agents: Optional[List[str]] = None,
 ) -> List[Dict]:
     """遍历所有 agent 私有知识库, 返回统一结构的 chunk 列表。"""
-    from health_guide.config import KNOWLEDGE_BASE_AGENT_SUBDIRS
-    from health_guide.rag import LocalKnowledgeBase
+    from wellness_copilot.config import KNOWLEDGE_BASE_AGENT_SUBDIRS
+    from wellness_copilot.rag import LocalKnowledgeBase
 
     kb_root = Path(kb_root)
     all_chunks: List[Dict] = []
@@ -907,7 +907,7 @@ def _verify_samples_for_chunk(
 
 def _create_eval_dataset_llm():
     """Create the LLM used only by this dataset-generation script."""
-    from health_guide import config
+    from wellness_copilot import config
     from langchain_openai import ChatOpenAI
 
     profile = {
@@ -1003,8 +1003,8 @@ def _write_sample(
 
 
 def _validate_generated_dataset(path: Path, kb_root: Path, args) -> None:
-    from health_guide.config import KNOWLEDGE_BASE_AGENT_SUBDIRS
-    from health_guide.rag import LocalKnowledgeBase
+    from wellness_copilot.config import KNOWLEDGE_BASE_AGENT_SUBDIRS
+    from wellness_copilot.rag import LocalKnowledgeBase
     from scripts.evaluate_rag import load_dataset, validate_dataset_against_kbs
 
     samples = load_dataset(path)
@@ -1065,7 +1065,7 @@ def _print_generation_cost_plan(chunks: List[Dict], args) -> None:
 
 
 def main():
-    from health_guide.config import KNOWLEDGE_BASE_DIR
+    from wellness_copilot.config import KNOWLEDGE_BASE_DIR
 
     parser = argparse.ArgumentParser(
         description=(

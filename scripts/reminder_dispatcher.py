@@ -10,8 +10,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide.integrations.local_logs import due_reminders, mark_reminder_delivered
-from health_guide.integrations.wechat_ilink import WeChatILinkError, get_client
+from wellness_copilot.integrations.local_logs import due_reminders, mark_reminder_delivered
+from wellness_copilot.integrations.wechat_ilink import WeChatILinkError, get_client
 
 
 def parse_args() -> argparse.Namespace:

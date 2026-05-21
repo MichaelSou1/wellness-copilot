@@ -28,8 +28,8 @@ os.environ["EPISODE_SEMANTIC_TOP_K"] = "3"
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide.agents import turn_start as turn_start_mod  # noqa: E402
-from health_guide.episode_store import append_episode  # noqa: E402
+from wellness_copilot.agents import turn_start as turn_start_mod  # noqa: E402
+from wellness_copilot.episode_store import append_episode  # noqa: E402
 
 
 def main():

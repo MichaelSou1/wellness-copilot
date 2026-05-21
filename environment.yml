@@ -1,4 +1,4 @@
-name: hga
+name: wellness-copilot
 channels:
   - pytorch
   - nvidia

@@ -37,7 +37,7 @@ def main() -> None:
     if missing_env or missing_deps:
         return
 
-    from health_guide.integrations.apple_calendar import list_apple_calendars
+    from wellness_copilot.integrations.apple_calendar import list_apple_calendars
 
     result = list_apple_calendars()
     if not result.get("ok"):

@@ -1,4 +1,4 @@
-"""Orchestrator — the parent health-guide agent.
+"""Orchestrator — the parent wellness-copilot agent.
 
 The orchestrator is a real parent agent: it owns the user-facing turn and can
 call specialist child agents as tools. Specialist selection is therefore part
@@ -500,7 +500,7 @@ def _simple_direct_answer(state, user_question: str, pctx: dict) -> dict | None:
         return None
     answer = ""
     if re.search(r"你叫什么名字|你是谁|名字", text):
-        answer = "我是 Health Guide，你的健康管理助手，可以帮你拆解训练、饮食、睡眠、压力和康复相关问题。"
+        answer = "我是 Wellness Copilot，你的健康管理助手，可以帮你拆解训练、饮食、睡眠、压力和康复相关问题。"
     elif re.search(r"天气.*好|今天天气|阳光|外面.*好", text):
         profile = pctx.get("raw_profile") or {}
         stats = profile.get("physical_stats") or {}
@@ -721,7 +721,7 @@ def _build_parent_agent(pctx: dict, child_ctx: _ChildCallContext, episode_contex
         build_personalization_decision_points(pctx, child_ctx.user_question, role="Orchestrator")
     )
     system_prompt = (
-        "你是 Health Guide 的父 agent / orchestrator。你直接面向用户，并通过工具调用专业子 agent；"
+        "你是 Wellness Copilot 的父 agent / orchestrator。你直接面向用户，并通过工具调用专业子 agent；"
         "不要把专家选择当成文本路由输出，也不要输出 PLAN、DIRECT 或专家名单。\n\n"
         f"{user_card}\n"
         f"{decision_section}"
@@ -802,7 +802,7 @@ def _direct_answer(state, *, error: Exception | None = None) -> dict:
     episode_context = state.get("episode_context") or ""
 
     try:
-        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
         if error is not None:
             raise error
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
@@ -1043,7 +1043,7 @@ def _run_parent_agent(state) -> dict:
         }
 
     try:
-        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
         child_ctx = _make_child_ctx(state, user_id, user_question, pctx, episode_context)
         _ground_images_if_present(child_ctx)
 

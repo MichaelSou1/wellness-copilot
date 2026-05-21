@@ -18,8 +18,8 @@ if ROOT not in sys.path:
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide.agents.dispatcher import dispatcher_node  # noqa: E402
-from health_guide.agents.replan_judge import _parse_verdict  # noqa: E402
+from wellness_copilot.agents.dispatcher import dispatcher_node  # noqa: E402
+from wellness_copilot.agents.replan_judge import _parse_verdict  # noqa: E402
 
 
 class PassLLM:
@@ -58,7 +58,7 @@ def test_dispatcher_replan_trigger():
 
 
 def test_dispatcher_replan_cap():
-    import health_guide.agents.dispatcher as dispatcher_mod
+    import wellness_copilot.agents.dispatcher as dispatcher_mod
 
     def psychologist_stub(*args, **kwargs):
         return {
@@ -93,8 +93,8 @@ def test_integration_replan_loop():
     from langgraph.checkpoint.memory import MemorySaver
     from langchain_core.messages import AIMessage
 
-    from health_guide.state import AgentState
-    from health_guide.graph import _route_after_critic, _route_after_orchestrator
+    from wellness_copilot.state import AgentState
+    from wellness_copilot.graph import _route_after_critic, _route_after_orchestrator
 
     def orchestrator_stub(state):
         if state.get("replan_context"):
@@ -168,7 +168,7 @@ def test_integration_replan_loop():
 
     thread_id = str(uuid.uuid4())
     user_id = "smoke_judge_user"
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
     query = "我深蹲后膝盖酸，今晚训练应该怎么调？"
     print(f"\n  USER: {query}")
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Restore Health Guide backup")
+    parser = argparse.ArgumentParser(description="Restore Wellness Copilot backup")
     parser.add_argument("backup_dir", help="Directory containing *.gz backup files")
     parser.add_argument("--target", default="restore_tmp", help="Directory to restore into")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing target files")

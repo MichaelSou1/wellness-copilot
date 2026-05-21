@@ -1,11 +1,11 @@
 [Unit]
-Description=Health Guide WeChat worker
+Description=Wellness Copilot WeChat worker
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/health-guide
-EnvironmentFile=/opt/health-guide/.env
+WorkingDirectory=/opt/wellness-copilot
+EnvironmentFile=/opt/wellness-copilot/.env
 ExecStart=/usr/bin/python3 scripts/wechat_ilink_worker.py
 Restart=always
 RestartSec=5

@@ -103,7 +103,7 @@ def _stable_uid(
 ) -> str:
     raw = idempotency_key or f"{action}:{user_id}:{title}:{start_iso}:{duration_min}:{description}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"health-guide-{digest}@health-guide-agent"
+    return f"wellness-copilot-{digest}@wellness-copilot"
 
 
 def _calendar_name(calendar: Any) -> str:
@@ -199,7 +199,7 @@ def _icalendar_payload(
     from icalendar import Calendar, Event
 
     cal = Calendar()
-    cal.add("prodid", "-//Health Guide Agent//Apple Calendar//CN")
+    cal.add("prodid", "-//Wellness Copilot//Apple Calendar//CN")
     cal.add("version", "2.0")
     event = Event()
     event.add("uid", uid)

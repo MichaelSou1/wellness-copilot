@@ -226,7 +226,7 @@ def run_doctor(
     episode_context: str = "",
 ) -> dict:
     try:
-        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
         print_expert_start("Doctor", user_question)
         pctx = pctx or build_personalization_ctx(user_id)
         deterministic = _deterministic_doctor_answer(pctx, user_question)

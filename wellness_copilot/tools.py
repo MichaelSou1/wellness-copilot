@@ -85,8 +85,8 @@ def retrieve_safety_guidelines(query: str, top_k: int = 3):
 
 @tool
 def get_user_profile(user_id: str = ""):
-    """获取用户画像。user_id 为空时，将使用环境变量 HEALTH_GUIDE_USER_ID。"""
-    target_user_id = user_id or os.environ.get("HEALTH_GUIDE_USER_ID", "default_user")
+    """获取用户画像。user_id 为空时，将使用环境变量 WELLNESS_COPILOT_USER_ID。"""
+    target_user_id = user_id or os.environ.get("WELLNESS_COPILOT_USER_ID", "default_user")
     profile = get_profile_from_store(target_user_id)
     return json.dumps(profile, ensure_ascii=False)
 
@@ -94,7 +94,7 @@ def get_user_profile(user_id: str = ""):
 @tool
 def update_user_profile(patch_json: str, user_id: str = ""):
     """更新用户画像。patch_json 需是 JSON 字符串，将做深度合并。"""
-    target_user_id = user_id or os.environ.get("HEALTH_GUIDE_USER_ID", "default_user")
+    target_user_id = user_id or os.environ.get("WELLNESS_COPILOT_USER_ID", "default_user")
     try:
         patch = json.loads(patch_json)
         if not isinstance(patch, dict):
@@ -107,7 +107,7 @@ def update_user_profile(patch_json: str, user_id: str = ""):
 
 
 def _target_user_id(user_id: str = "") -> str:
-    return user_id or os.environ.get("HEALTH_GUIDE_USER_ID", "default_user")
+    return user_id or os.environ.get("WELLNESS_COPILOT_USER_ID", "default_user")
 
 
 def _append_unique(items: list, value: str) -> list:

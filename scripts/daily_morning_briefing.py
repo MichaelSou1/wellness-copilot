@@ -9,13 +9,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide.integrations.local_logs import summarize_recent_logs
-from health_guide.integrations.wechat_ilink import get_client
+from wellness_copilot.integrations.local_logs import summarize_recent_logs
+from wellness_copilot.integrations.wechat_ilink import get_client
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Send a daily Health Guide briefing")
-    parser.add_argument("--user-id", default=os.environ.get("HEALTH_GUIDE_USER_ID", "default_user"))
+    parser = argparse.ArgumentParser(description="Send a daily Wellness Copilot briefing")
+    parser.add_argument("--user-id", default=os.environ.get("WELLNESS_COPILOT_USER_ID", "default_user"))
     parser.add_argument("--wxid", default=os.environ.get("WECHAT_TARGET_WXID", ""))
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--dry-run", action="store_true")

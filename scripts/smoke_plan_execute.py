@@ -16,8 +16,8 @@ if ROOT not in sys.path:
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide.graph import graph  # noqa: E402
-from health_guide.llm import extract_text_content  # noqa: E402
+from wellness_copilot.graph import graph  # noqa: E402
+from wellness_copilot.llm import extract_text_content  # noqa: E402
 
 
 def run_turn(thread_id: str, user_id: str, query: str):
@@ -72,7 +72,7 @@ def run_turn(thread_id: str, user_id: str, query: str):
 def main():
     thread_id = str(uuid.uuid4())
     user_id = "smoke_plan_user"
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
 
     # Multi-expert query — Orchestrator should pick Trainer + Nutritionist
     # ('练腿' + '吃什么') and sort them as Trainer -> Nutritionist.

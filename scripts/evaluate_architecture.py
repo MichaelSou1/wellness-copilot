@@ -1,4 +1,4 @@
-"""L4 architecture regression evaluation for Health Guide Agent.
+"""L4 architecture regression evaluation for Wellness Copilot.
 
 This runner targets six architecture properties that the L5 output-quality
 evaluation does not surface directly:
@@ -8,7 +8,7 @@ evaluation does not surface directly:
      pair. The SystemMessage contains a role-cropped profile and (optionally)
      peer scratchpad notes — NEVER fields outside the per-role whitelist
      and NEVER the parent's accumulated messages.
-     We assert this by monkey-patching `health_guide.utils.create_agent`
+     We assert this by monkey-patching `wellness_copilot.utils.create_agent`
      to capture every system_prompt string at construction time.
 
   2. rag_on_demand
@@ -61,13 +61,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide import config as _cfg  # noqa: E402
-from health_guide import utils as _utils_mod  # noqa: E402
-from health_guide.agents import dispatcher as _disp_mod  # noqa: E402
-from health_guide.episode_store import append_episode  # noqa: E402
-from health_guide.graph import graph  # noqa: E402
-from health_guide.llm import extract_text_content  # noqa: E402
-from health_guide.profile_store import update_user_profile  # noqa: E402
+from wellness_copilot import config as _cfg  # noqa: E402
+from wellness_copilot import utils as _utils_mod  # noqa: E402
+from wellness_copilot.agents import dispatcher as _disp_mod  # noqa: E402
+from wellness_copilot.episode_store import append_episode  # noqa: E402
+from wellness_copilot.graph import graph  # noqa: E402
+from wellness_copilot.llm import extract_text_content  # noqa: E402
+from wellness_copilot.profile_store import update_user_profile  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def _install_capture() -> None:
 
     _utils_mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
     # Also patch every expert module's already-imported reference to create_agent.
-    from health_guide.agents import doctor as _d, trainer as _t, nutritionist as _n, psychologist as _p, orchestrator as _o
+    from wellness_copilot.agents import doctor as _d, trainer as _t, nutritionist as _n, psychologist as _p, orchestrator as _o
     for mod in (_t, _n, _p, _d, _o):
         if hasattr(mod, "create_agent"):
             mod.create_agent = _capturing_create_agent  # type: ignore[assignment]
@@ -407,7 +407,7 @@ def main() -> None:
             sys.exit(1)
 
     print(f"{'='*64}")
-    print("L4 Architecture Regression — Health Guide Agent")
+    print("L4 Architecture Regression — Wellness Copilot")
     print(f"Dataset: {args.dataset}  ({len(samples)} samples)")
     print(f"{'='*64}")
 

@@ -36,7 +36,7 @@ _MEAL_SYSTEM = """\
 """
 
 _GENERIC_SYSTEM = """\
-你是 Health Guide 的多模态图片理解节点。你的任务是把图片转成后续健康咨询可用的文本 grounding。
+你是 Wellness Copilot 的多模态图片理解节点。你的任务是把图片转成后续健康咨询可用的文本 grounding。
 
 只输出 JSON，不要 markdown。字段：
 {

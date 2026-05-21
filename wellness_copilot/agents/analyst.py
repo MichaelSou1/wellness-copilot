@@ -62,7 +62,7 @@ def _deterministic_analysis(user_id: str, user_question: str) -> str:
 
 def _build_analyst_agent(user_question: str = ""):
     system_prompt = (
-        "你是 Health Guide 的数据复盘分析师，只基于结构化日志和用户画像做趋势总结，不开训练或医学处方。\n"
+        "你是 Wellness Copilot 的数据复盘分析师，只基于结构化日志和用户画像做趋势总结，不开训练或医学处方。\n"
         "必须优先调用 query_logs 读取真实日志；如果没有日志，要明确说明数据不足。\n"
         "输出真实数字、均值、完成次数、缺口和不确定性，不要虚构未记录的数据。"
     )
@@ -77,7 +77,7 @@ def run_analyst(
     episode_context: str = "",
 ) -> dict:
     try:
-        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
         print_expert_start("Analyst", user_question)
         deterministic = _deterministic_analysis(user_id, user_question)
         if deterministic:

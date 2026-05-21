@@ -7,16 +7,16 @@ import time
 import uuid
 from pathlib import Path
 from langchain_core.messages import HumanMessage
-from health_guide.config import (
+from wellness_copilot.config import (
     MCP_DOCTOR_ENABLED,
     MCP_NUTRITIONIST_ENABLED,
     MCP_TRAINER_ENABLED,
 )
-from health_guide.detail import display_role, set_detail
-from health_guide.graph import graph
-from health_guide.llm import extract_text_content
-from health_guide.mcp_client import MCP_REGISTRY
-from health_guide.observability import ObservabilityTracker, TurnRecord
+from wellness_copilot.detail import display_role, set_detail
+from wellness_copilot.graph import graph
+from wellness_copilot.llm import extract_text_content
+from wellness_copilot.mcp_client import MCP_REGISTRY
+from wellness_copilot.observability import ObservabilityTracker, TurnRecord
 
 SESSION_STORE_PATH = Path(os.environ.get("SESSION_STORE_PATH", "session_store.json"))
 
@@ -96,8 +96,8 @@ def _resolve_thread_id(user_id: str, interactive: bool = True) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="health-guide",
-        description="Health Guide multi-agent CLI",
+        prog="wellness-copilot",
+        description="Wellness Copilot multi-agent CLI",
     )
     parser.add_argument(
         "--detail",
@@ -107,7 +107,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["cli", "wechat"],
-        default=os.environ.get("HEALTH_GUIDE_MODE", "cli"),
+        default=os.environ.get("WELLNESS_COPILOT_MODE", "cli"),
         help="运行模式：cli 为本地命令行，wechat 为微信 iLink 长轮询 worker。",
     )
     return parser.parse_args()
@@ -145,7 +145,7 @@ def main():
                 )
 
     user_id = input("User ID (默认 default_user): ").strip().lstrip("﻿") or "default_user"
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
 
     thread_id = _resolve_thread_id(user_id)
     config = {"configurable": {"thread_id": thread_id}}
@@ -290,7 +290,7 @@ def main():
             final_answer = final_answer or "抱歉，本轮处理时发生系统错误，请稍后重试。"
 
         if not detail:
-            print(f"Health-Guide-Agent: {final_answer}\n")
+            print(f"wellness-copilot: {final_answer}\n")
 
         # Persist thread for resume on next launch (after at least one turn).
         store = _load_session_store()

@@ -1,4 +1,4 @@
-# Health Guide Agent - GitHub 推送清理清单
+# Wellness Copilot - GitHub 推送清理清单
 
 ## ✅ 已完成的清理
 
@@ -29,7 +29,7 @@
 1. **克隆仓库**
    ```bash
    git clone <your-repo-url>
-   cd Health-Guide-Agent
+   cd wellness-copilot
    ```
 
 2. **配置环境变量**
@@ -41,7 +41,7 @@
 3. **创建Python环境**
    ```bash
    conda env create -f environment.yml
-   conda activate health-guide-rag
+   conda activate wellness-copilot-rag
    ```
 
 4. **下载RAG模型**

@@ -1,4 +1,4 @@
-"""Long-poll WeChat iLink updates and pass them into the Health Guide graph."""
+"""Long-poll WeChat iLink updates and pass them into the Wellness Copilot graph."""
 from __future__ import annotations
 
 import argparse
@@ -15,17 +15,17 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide import config as cfg
-from health_guide.detail import display_role, set_detail
-from health_guide.graph import graph
-from health_guide.integrations.wechat_ilink import (
+from wellness_copilot import config as cfg
+from wellness_copilot.detail import display_role, set_detail
+from wellness_copilot.graph import graph
+from wellness_copilot.integrations.wechat_ilink import (
     WeChatILinkError,
     get_client,
     get_last_offset,
     normalize_update,
     set_last_offset,
 )
-from health_guide.integrations.local_logs import (
+from wellness_copilot.integrations.local_logs import (
     bind_wechat_user,
     enqueue_wechat_message,
     get_or_create_wechat_user_id,
@@ -33,8 +33,8 @@ from health_guide.integrations.local_logs import (
     pending_wechat_messages,
     pending_wechat_users,
 )
-from health_guide.llm import extract_text_content
-from health_guide.observability import ObservabilityTracker, TurnRecord
+from wellness_copilot.llm import extract_text_content
+from wellness_copilot.observability import ObservabilityTracker, TurnRecord
 
 _QUESTION_OR_COMMAND = re.compile(
     r"[？?]|怎么|如何|能不能|能否|可以吗|可不可以|吗\b|呢\b|"
@@ -56,11 +56,11 @@ _BIND_COMMAND = re.compile(r"^\s*(?:/bind|绑定用户|绑定user|绑定 user)\s
 @contextmanager
 def _worker_env(user_id: str, target_wxid: str, context_token: str):
     old = {
-        "HEALTH_GUIDE_USER_ID": os.environ.get("HEALTH_GUIDE_USER_ID"),
+        "WELLNESS_COPILOT_USER_ID": os.environ.get("WELLNESS_COPILOT_USER_ID"),
         "WECHAT_TARGET_WXID": os.environ.get("WECHAT_TARGET_WXID"),
         "WECHAT_CONTEXT_TOKEN": os.environ.get("WECHAT_CONTEXT_TOKEN"),
     }
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
     os.environ["WECHAT_TARGET_WXID"] = target_wxid
     os.environ["WECHAT_CONTEXT_TOKEN"] = context_token
     try:
@@ -290,7 +290,7 @@ def _enqueue_update(client, update: dict, detail: bool = False) -> None:
     msg = normalize_update(update)
     if not msg.text and not msg.media_ids:
         return
-    user_id = msg.user_wxid or os.environ.get("HEALTH_GUIDE_USER_ID", "wechat_user")
+    user_id = msg.user_wxid or os.environ.get("WELLNESS_COPILOT_USER_ID", "wechat_user")
     if msg.context_token:
         client.remember_context(user_id, msg.context_token)
     project_user_id = get_or_create_wechat_user_id(user_id)

@@ -1,4 +1,4 @@
-# Health Guide Agent Deployment
+# Wellness Copilot Deployment
 
 This deploys the WeChat worker, reminder dispatcher, and backup loop as three
 Docker Compose services sharing the same `./data` volume.
@@ -20,8 +20,8 @@ docker compose version
 ## 2. Configure
 
 ```bash
-git clone <repo-url> health-guide
-cd health-guide
+git clone <repo-url> wellness-copilot
+cd wellness-copilot
 cp .env.example .env
 vim .env
 mkdir -p data logs reports tmp
@@ -99,15 +99,15 @@ Smoke checks:
 
 ```bash
 docker compose config --quiet
-docker exec hga-worker python -c "from health_guide.integrations.local_logs import init_db; init_db(); print('ok')"
-docker exec hga-worker python scripts/evaluate_output.py --no-judge
-docker exec hga-worker python scripts/setup_icloud_caldav.py
+docker exec wellness-copilot-worker python -c "from wellness_copilot.integrations.local_logs import init_db; init_db(); print('ok')"
+docker exec wellness-copilot-worker python scripts/evaluate_output.py --no-judge
+docker exec wellness-copilot-worker python scripts/setup_icloud_caldav.py
 ```
 
 Reminder dry run:
 
 ```bash
-docker exec hga-dispatcher python scripts/reminder_dispatcher.py --once
+docker exec wellness-copilot-dispatcher python scripts/reminder_dispatcher.py --once
 ```
 
 Backups are written under `./data/backups/YYYYMMDD/` and uploaded to OSS when

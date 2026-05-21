@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide.integrations.wechat_ilink import WeChatILinkClient, WeChatILinkError
+from wellness_copilot.integrations.wechat_ilink import WeChatILinkClient, WeChatILinkError
 
 
 def _pick(data: dict, *keys: str) -> str:

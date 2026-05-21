@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup helper for community MCP servers used by Health-Guide-Agent.
+# Setup helper for community MCP servers used by wellness-copilot.
 #
 # jlfwong/food-data-central-mcp-server (USDA, Nutritionist) is NOT published
 # to npm — we have to clone and `npm install` once. wger-mcp and medical-mcp

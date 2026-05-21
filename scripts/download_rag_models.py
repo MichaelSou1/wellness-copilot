@@ -264,7 +264,7 @@ def _load_cross_encoder(model_path: str, device: str, checkpoint_mode: str):
 
 
 def main():
-    from health_guide.config import (
+    from wellness_copilot.config import (
         RAG_EMBED_MODEL_NAME,
         RAG_FALLBACK_EMBED_MODEL_NAME,
         RAG_RERANK_MODEL_NAME,

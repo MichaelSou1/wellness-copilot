@@ -143,7 +143,7 @@ def init_db() -> None:
 
 
 def _target_user_id(user_id: str = "") -> str:
-    return user_id or os.environ.get("HEALTH_GUIDE_USER_ID", "default_user")
+    return user_id or os.environ.get("WELLNESS_COPILOT_USER_ID", "default_user")
 
 
 def _now_epoch() -> int:
@@ -662,7 +662,7 @@ def bind_wechat_user(wechat_wxid: str, project_user_id: str, display_name: str =
 def get_or_create_wechat_user_id(wechat_wxid: str) -> str:
     wxid = str(wechat_wxid or "").strip()
     if not wxid:
-        return os.environ.get("HEALTH_GUIDE_USER_ID", "wechat_user")
+        return os.environ.get("WELLNESS_COPILOT_USER_ID", "wechat_user")
     binding = get_wechat_binding(wxid)
     if binding:
         return str(binding["project_user_id"])

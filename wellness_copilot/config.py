@@ -102,7 +102,7 @@ EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "8
 EPISODE_SEMANTIC_TOP_K = int(os.environ.get("EPISODE_SEMANTIC_TOP_K", "3"))
 EPISODE_INDEX_DIR = os.environ.get(
   "EPISODE_INDEX_DIR",
-  str(Path.home() / ".health_guide_indices" / "episodes"),
+  str(Path.home() / ".wellness_copilot_indices" / "episodes"),
 )
 
 # 本地知识库目录
@@ -289,4 +289,4 @@ OSS_ACCESS_KEY_ID = os.environ.get("OSS_ACCESS_KEY_ID", "")
 OSS_ACCESS_KEY_SECRET = os.environ.get("OSS_ACCESS_KEY_SECRET", "")
 OSS_BUCKET = os.environ.get("OSS_BUCKET", "")
 OSS_ENDPOINT = os.environ.get("OSS_ENDPOINT", "")
-OSS_PREFIX = os.environ.get("OSS_PREFIX", "health-guide-backup")
+OSS_PREFIX = os.environ.get("OSS_PREFIX", "wellness-copilot-backup")

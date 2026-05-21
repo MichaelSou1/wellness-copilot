@@ -1,11 +1,11 @@
 """A/B 对比多个 embedding 模型在同一评测集上的召回质量。
 
 为什么用子进程运行每个模型:
-- `health_guide.rag` 在 import 时从 `health_guide.config` 读取
+- `wellness_copilot.rag` 在 import 时从 `wellness_copilot.config` 读取
   `RAG_EMBED_MODEL_NAME`,属于模块级常量,运行中切换比较 tricky。
 - 用 `subprocess + env var` 每次都是一个干净的 Python 进程,避免两个
   embedding 模型同时驻留显存(8GB 端侧可能 OOM),也避免 index cache 串扰。
-- `health_guide.rag._docs_fingerprint` 已经把模型名纳入哈希,不同模型的
+- `wellness_copilot.rag._docs_fingerprint` 已经把模型名纳入哈希,不同模型的
   cache 自动失效,无需手动清理。
 
 用法示例:

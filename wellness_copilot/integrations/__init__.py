@@ -1,4 +1,4 @@
-"""External integrations for Health Guide.
+"""External integrations for Wellness Copilot.
 
 Modules in this package are deliberately thin wrappers around real-world
 actuation surfaces (SQLite logs, reminders, WeChat, Vision). They are imported

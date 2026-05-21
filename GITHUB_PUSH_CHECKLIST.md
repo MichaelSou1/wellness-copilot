@@ -49,7 +49,7 @@ git log --oneline -5
 
 ```bash
 # 如果还未添加远程仓库
-git remote add origin https://github.com/your-username/Health-Guide-Agent.git
+git remote add origin https://github.com/your-username/wellness-copilot.git
 
 # 推送到GitHub
 git push -u origin main

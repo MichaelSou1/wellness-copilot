@@ -23,9 +23,9 @@ os.environ.setdefault("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", "false")
 
 from langchain_core.messages import HumanMessage  # noqa: E402
 
-from health_guide.graph import graph  # noqa: E402
-from health_guide.llm import extract_text_content  # noqa: E402
-from health_guide.profile_store import get_user_profile, update_user_profile  # noqa: E402
+from wellness_copilot.graph import graph  # noqa: E402
+from wellness_copilot.llm import extract_text_content  # noqa: E402
+from wellness_copilot.profile_store import get_user_profile, update_user_profile  # noqa: E402
 
 
 def run_turn(thread_id: str, user_id: str, query: str):
@@ -49,7 +49,7 @@ def run_turn(thread_id: str, user_id: str, query: str):
 def main():
     user_id = f"smoke_personalization_{uuid.uuid4().hex[:8]}"
     thread_id = str(uuid.uuid4())
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
 
     update_user_profile(
         user_id,

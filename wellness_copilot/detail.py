@@ -35,18 +35,18 @@ def display_role(role: str) -> str:
 def set_detail(enabled: bool) -> None:
     """Turn detail mode on/off process-wide.
 
-    Also mirrors to ``HEALTH_GUIDE_DETAIL`` so any module imported lazily
+    Also mirrors to ``WELLNESS_COPILOT_DETAIL`` so any module imported lazily
     (after argparse runs) still sees the same value via ``is_detail()``.
     """
     global _DETAIL
     _DETAIL = bool(enabled)
-    os.environ["HEALTH_GUIDE_DETAIL"] = "1" if _DETAIL else "0"
+    os.environ["WELLNESS_COPILOT_DETAIL"] = "1" if _DETAIL else "0"
 
 
 def is_detail() -> bool:
     if _DETAIL:
         return True
-    return os.environ.get("HEALTH_GUIDE_DETAIL") == "1"
+    return os.environ.get("WELLNESS_COPILOT_DETAIL") == "1"
 
 
 def _truncate(value: Any, n: int) -> str:

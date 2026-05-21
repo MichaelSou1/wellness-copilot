@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from health_guide import config as cfg
+from wellness_copilot import config as cfg
 
 
 def _backup_sqlite(src: Path, dst: Path) -> None:

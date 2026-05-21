@@ -452,7 +452,7 @@ def run_trainer(
 ) -> dict:
     """Execute the Trainer expert and return a state update dict."""
     try:
-        os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+        os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
         print_expert_start("Trainer", user_question)
         pctx = pctx or build_personalization_ctx(user_id)
         deterministic = _deterministic_trainer_answer(pctx, user_question)

@@ -24,7 +24,7 @@ if ROOT not in sys.path:
 
 from langchain_core.messages import HumanMessage, AIMessage  # noqa: E402
 
-from health_guide.agents.query_rewriter import (  # noqa: E402
+from wellness_copilot.agents.query_rewriter import (  # noqa: E402
     query_rewriter_node,
     get_user_question,
 )
@@ -54,12 +54,12 @@ def test_get_user_question_falls_back_to_messages():
 
 def test_live_multi_turn_coreference():
     """Run the full graph for two turns; turn 2 uses a pronoun."""
-    from health_guide.graph import graph
-    from health_guide.llm import extract_text_content
+    from wellness_copilot.graph import graph
+    from wellness_copilot.llm import extract_text_content
 
     thread_id = str(uuid.uuid4())
     user_id = "smoke_coref_user"
-    os.environ["HEALTH_GUIDE_USER_ID"] = user_id
+    os.environ["WELLNESS_COPILOT_USER_ID"] = user_id
     config = {"configurable": {"thread_id": thread_id}}
 
     def run(query: str) -> dict:
