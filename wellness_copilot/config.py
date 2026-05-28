@@ -87,6 +87,28 @@ OBSERVABILITY_DB_PATH = os.environ.get("OBSERVABILITY_DB_PATH", "observability.d
 HEALTH_LOGS_DB_PATH = os.environ.get("HEALTH_LOGS_DB_PATH", "health_logs.db")
 DEFAULT_TIMEZONE = os.environ.get("DEFAULT_TIMEZONE", "Asia/Shanghai")
 
+# === Backend MVP API / queue / observability ===
+BACKEND_API_KEY = os.environ.get("BACKEND_API_KEY") or os.environ.get("WELLNESS_API_KEY", "")
+BACKEND_DB_PATH = os.environ.get("BACKEND_DB_PATH", HEALTH_LOGS_DB_PATH)
+BACKEND_JOB_LEASE_SEC = int(os.environ.get("BACKEND_JOB_LEASE_SEC", "300"))
+BACKEND_OUTBOX_LEASE_SEC = int(os.environ.get("BACKEND_OUTBOX_LEASE_SEC", "120"))
+BACKEND_WORKER_IDLE_SEC = float(os.environ.get("BACKEND_WORKER_IDLE_SEC", "1"))
+BACKEND_OUTBOX_IDLE_SEC = float(os.environ.get("BACKEND_OUTBOX_IDLE_SEC", "1"))
+BACKEND_MAX_AGENT_RETRIES = int(os.environ.get("BACKEND_MAX_AGENT_RETRIES", "3"))
+BACKEND_SQLITE_BUSY_TIMEOUT_MS = int(os.environ.get("BACKEND_SQLITE_BUSY_TIMEOUT_MS", "10000"))
+BACKEND_SYNC_TIMEOUT_SEC = float(os.environ.get("BACKEND_SYNC_TIMEOUT_SEC", "35"))
+BACKEND_MAX_PENDING_JOBS = int(os.environ.get("BACKEND_MAX_PENDING_JOBS", "50"))
+BACKEND_MAX_RUNNING_JOBS = int(os.environ.get("BACKEND_MAX_RUNNING_JOBS", "8"))
+BACKEND_PREWARM_RAG = _env_bool("BACKEND_PREWARM_RAG", False)
+BACKEND_PREWARM_RAG_QUERY = os.environ.get("BACKEND_PREWARM_RAG_QUERY", "健康建议")
+BACKEND_RETRY_DELAYS_SEC = tuple(
+    int(part.strip())
+    for part in os.environ.get("BACKEND_RETRY_DELAYS_SEC", "30,60,120").split(",")
+    if part.strip()
+)
+FAKE_AGENT_MODE = _env_bool("FAKE_AGENT_MODE", False)
+FAKE_AGENT_DELAY_MS = int(os.environ.get("FAKE_AGENT_DELAY_MS", "150"))
+
 # === Apple Calendar / iCloud CalDAV（可选）===
 # 使用 Apple ID 的 App 专用密码，不要使用 Apple ID 主密码。
 ICLOUD_CALDAV_URL = os.environ.get("ICLOUD_CALDAV_URL") or "https://caldav.icloud.com"

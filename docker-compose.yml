@@ -1,4 +1,36 @@
 services:
+  api:
+    build: .
+    container_name: wellness-copilot-api
+    restart: always
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      - SQLITE_DB_PATH=/app/data/checkpoints.db
+      - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - BACKEND_DB_PATH=/app/data/health_logs.db
+      - OBSERVABILITY_DB_PATH=/app/data/observability.db
+      - PROFILE_STORE_PATH=/app/data/profile_store.json
+      - EPISODE_STORE_PATH=/app/data/episode_store.json
+      - SESSION_STORE_PATH=/app/data/session_store.json
+      - RAG_HF_HOME=/root/.cache/huggingface
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+      - ./data/.hf_cache:/root/.cache/huggingface
+      - ./knowledge_base:/app/knowledge_base
+      - ./logs:/app/logs
+      - ./tmp:/app/tmp
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "wellness_copilot.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
   worker:
     build: .
     container_name: wellness-copilot-worker
@@ -8,6 +40,7 @@ services:
       - TZ=Asia/Shanghai
       - SQLITE_DB_PATH=/app/data/checkpoints.db
       - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - BACKEND_DB_PATH=/app/data/health_logs.db
       - OBSERVABILITY_DB_PATH=/app/data/observability.db
       - PROFILE_STORE_PATH=/app/data/profile_store.json
       - EPISODE_STORE_PATH=/app/data/episode_store.json
@@ -28,6 +61,32 @@ services:
       timeout: 5s
       retries: 3
 
+  agent-worker:
+    build: .
+    container_name: wellness-copilot-agent-worker
+    restart: always
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      - SQLITE_DB_PATH=/app/data/checkpoints.db
+      - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - BACKEND_DB_PATH=/app/data/health_logs.db
+      - OBSERVABILITY_DB_PATH=/app/data/observability.db
+      - PROFILE_STORE_PATH=/app/data/profile_store.json
+      - EPISODE_STORE_PATH=/app/data/episode_store.json
+      - RAG_HF_HOME=/root/.cache/huggingface
+      - HF_HOME=/root/.cache/huggingface
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+      - ./data/.hf_cache:/root/.cache/huggingface
+      - ./knowledge_base:/app/knowledge_base
+      - ./logs:/app/logs
+      - ./tmp:/app/tmp
+    depends_on:
+      - api
+    command: ["python", "scripts/agent_job_worker.py"]
+
   dispatcher:
     build: .
     container_name: wellness-copilot-dispatcher
@@ -36,13 +95,14 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - BACKEND_DB_PATH=/app/data/health_logs.db
     volumes:
       - ./.env:/app/.env:ro
       - ./data:/app/data
       - ./logs:/app/logs
     depends_on:
-      - worker
-    command: ["python", "scripts/reminder_dispatcher.py"]
+      - agent-worker
+    command: ["python", "scripts/outbox_dispatcher.py"]
 
   backup:
     build: .
@@ -53,6 +113,7 @@ services:
       - TZ=Asia/Shanghai
       - SQLITE_DB_PATH=/app/data/checkpoints.db
       - HEALTH_LOGS_DB_PATH=/app/data/health_logs.db
+      - BACKEND_DB_PATH=/app/data/health_logs.db
       - OBSERVABILITY_DB_PATH=/app/data/observability.db
       - PROFILE_STORE_PATH=/app/data/profile_store.json
       - EPISODE_STORE_PATH=/app/data/episode_store.json

@@ -12,6 +12,7 @@ from wellness_copilot.config import (
     MCP_NUTRITIONIST_ENABLED,
     MCP_TRAINER_ENABLED,
 )
+from wellness_copilot.backend_runtime import run_agent_turn
 from wellness_copilot.detail import display_role, set_detail
 from wellness_copilot.graph import graph
 from wellness_copilot.llm import extract_text_content
@@ -182,105 +183,109 @@ def main():
         vision_calls = 0
 
         try:
-            with _suppress_process_output(not detail):
-                stream_iter = graph.stream(
-                    {
-                        "messages": [HumanMessage(content=user_input)],
-                        "profile_user_id": user_id,
-                    },
-                    config,
-                )
-                for event in stream_iter:
-                    for key, value in event.items():
-                        if detail:
+            if not detail:
+                with _suppress_process_output(True):
+                    result = run_agent_turn(
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        message=user_input,
+                        source="cli",
+                    )
+                final_answer = result.answer
+                routes = [r for r in result.route.split(",") if r]
+                tools_used = result.tools_used
+                retrieval_hits = result.retrieval_hits
+                actuation_events = [{}] * result.actuation_count
+                vision_calls = result.vision_calls
+            else:
+                with _suppress_process_output(False):
+                    stream_iter = graph.stream(
+                        {
+                            "messages": [HumanMessage(content=user_input)],
+                            "profile_user_id": user_id,
+                        },
+                        config,
+                    )
+                    for event in stream_iter:
+                        for key, value in event.items():
                             print(f"\n[当前节点]: {key}")
-                        if value is None:
-                            value = {}
+                            if value is None:
+                                value = {}
 
-                        if "messages" in value:
-                            last_msg = value["messages"][-1]
-                            text = extract_text_content(last_msg)
-                            if detail:
+                            if "messages" in value:
+                                last_msg = value["messages"][-1]
+                                text = extract_text_content(last_msg)
                                 print(f"[回复内容]: {text}")
-                            final_answer = text
+                                final_answer = text
 
-                        if "expert_responses" in value and value["expert_responses"]:
-                            for expert, resp in value["expert_responses"].items():
-                                if not isinstance(resp, str):
-                                    continue
-                                if detail:
+                            if "expert_responses" in value and value["expert_responses"]:
+                                for expert, resp in value["expert_responses"].items():
+                                    if not isinstance(resp, str):
+                                        continue
                                     label = display_role(expert)
                                     print(
                                         f"[{label} 回答]: "
                                         f"{resp[:120]}{'...' if len(resp) > 120 else ''}"
                                     )
 
-                        if "agent_notes" in value and value["agent_notes"]:
-                            for expert, note in value["agent_notes"].items():
-                                if not isinstance(note, str):
-                                    continue
-                                if detail:
+                            if "agent_notes" in value and value["agent_notes"]:
+                                for expert, note in value["agent_notes"].items():
+                                    if not isinstance(note, str):
+                                        continue
                                     label = display_role(expert)
                                     print(
                                         f"[scratchpad/{label}]: "
                                         f"{note[:100]}{'...' if len(note) > 100 else ''}"
                                     )
 
-                        if "draft_answer" in value and value["draft_answer"]:
-                            draft = value["draft_answer"]
-                            if detail:
+                            if "draft_answer" in value and value["draft_answer"]:
+                                draft = value["draft_answer"]
                                 print(
                                     f"[Aggregator 草稿]: "
                                     f"{draft[:160]}{'...' if len(draft) > 160 else ''}"
                                 )
 
-                        if "critic_verdict" in value and value["critic_verdict"]:
-                            if detail:
+                            if "critic_verdict" in value and value["critic_verdict"]:
                                 print(f"[Critic 审核]: {value['critic_verdict']}")
 
-                        if "last_tools" in value and value["last_tools"]:
-                            real_tools = [t for t in value["last_tools"] if t != "__RESET__"]
-                            tools_used.extend(real_tools)
-                            if detail:
+                            if "last_tools" in value and value["last_tools"]:
+                                real_tools = [t for t in value["last_tools"] if t != "__RESET__"]
+                                tools_used.extend(real_tools)
                                 for tool_name in real_tools:
                                     print(f"[调用工具]: {tool_name}")
 
-                        if "actuation_log" in value and value["actuation_log"]:
-                            actuation_events.extend(value["actuation_log"])
-                            if detail:
+                            if "actuation_log" in value and value["actuation_log"]:
+                                actuation_events.extend(value["actuation_log"])
                                 print(f"[Actuation]: {len(value['actuation_log'])} 条真实 side-effect 流水")
 
-                        if "vision_extractions" in value and value["vision_extractions"]:
-                            vision_calls += 1
-                            if detail:
+                            if "vision_extractions" in value and value["vision_extractions"]:
+                                vision_calls += 1
                                 print("[Vision]: 已写入本轮图片识别结果")
 
-                        if "retrieval_hits" in value:
-                            rh = value.get("retrieval_hits", 0)
-                            if isinstance(rh, (int, float, str)):
-                                retrieval_hits += int(rh)
+                            if "retrieval_hits" in value:
+                                rh = value.get("retrieval_hits", 0)
+                                if isinstance(rh, (int, float, str)):
+                                    retrieval_hits += int(rh)
 
-                        if "plan" in value and value["plan"] is not None:
-                            plan_list = value["plan"]
-                            if detail and plan_list:
-                                print(f"[Plan 待执行]: {' -> '.join(display_role(role) for role in plan_list)}")
+                            if "plan" in value and value["plan"] is not None:
+                                plan_list = value["plan"]
+                                if plan_list:
+                                    print(f"[Plan 待执行]: {' -> '.join(display_role(role) for role in plan_list)}")
 
-                        if "executed" in value and value["executed"]:
-                            routes = value["executed"]
-                            if detail:
+                            if "executed" in value and value["executed"]:
+                                routes = value["executed"]
                                 print(f"[Plan 已执行]: {', '.join(display_role(role) for role in routes)}")
 
-                        if "history_summary" in value and value["history_summary"]:
-                            if detail:
+                            if "history_summary" in value and value["history_summary"]:
                                 print("[TurnStart] 已压缩较早历史为摘要（保留最近 8 条原文）")
 
-                        if "next" in value and detail:
-                            next_val = value["next"]
-                            if isinstance(next_val, list):
-                                if next_val:
-                                    print(f"[Dispatch -> {next_val[0]}]")
-                            else:
-                                print(f"[Dispatch -> {next_val}]")
+                            if "next" in value:
+                                next_val = value["next"]
+                                if isinstance(next_val, list):
+                                    if next_val:
+                                        print(f"[Dispatch -> {next_val[0]}]")
+                                else:
+                                    print(f"[Dispatch -> {next_val}]")
         except Exception as e:
             if detail:
                 print(
@@ -307,24 +312,24 @@ def main():
 
         latency_ms = (time.perf_counter() - start_ts) * 1000
         citations_count = final_answer.count("[source:")
-        try:
-            tracker.log_turn(
-                TurnRecord(
-                    thread_id=thread_id,
-                    turn_index=turn_index,
-                    route=route,
-                    user_query=user_input,
-                    final_answer=final_answer,
-                    tools_used=tools_used,
-                    retrieval_hits=retrieval_hits,
-                    citations_count=citations_count,
-                    latency_ms=latency_ms,
-                    actuation_count=len(actuation_events),
-                    vision_calls=vision_calls,
+        if detail:
+            try:
+                tracker.log_turn(
+                    TurnRecord(
+                        thread_id=thread_id,
+                        turn_index=turn_index,
+                        route=route,
+                        user_query=user_input,
+                        final_answer=final_answer,
+                        tools_used=tools_used,
+                        retrieval_hits=retrieval_hits,
+                        citations_count=citations_count,
+                        latency_ms=latency_ms,
+                        actuation_count=len(actuation_events),
+                        vision_calls=vision_calls,
+                    )
                 )
-            )
-        except Exception as e:
-            if detail:
+            except Exception as e:
                 print(f"[WARN] 写入可观测指标失败：{type(e).__name__}: {e}")
 
     if detail:

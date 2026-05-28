@@ -1,10 +1,12 @@
 import os
 import re
+import time
 from pathlib import Path
 from langchain_core.tools import tool
 
 import json
 
+from .backend_metrics import RAG_RETRIEVAL_LATENCY
 from .rag import LocalKnowledgeBase
 from .config import KNOWLEDGE_BASE_DIR, KNOWLEDGE_BASE_AGENT_SUBDIRS
 from .profile_store import get_user_profile as get_profile_from_store
@@ -30,15 +32,44 @@ def _get_agent_kb(agent: str) -> LocalKnowledgeBase:
     return _AGENT_KBS[agent]
 
 
+def prewarm_knowledge_bases(query: str = "健康建议", agents: list[str] | None = None) -> dict:
+    """Load KB indexes/models before user traffic reaches the Agent."""
+    selected = agents or ["trainer", "nutritionist", "psychologist", "doctor", "safety"]
+    results = {}
+    for agent in selected:
+        started = time.perf_counter()
+        try:
+            kb = _get_agent_kb(agent)
+            kb.build()
+            if query:
+                kb.retrieve(query=query, top_k=1)
+            stats = kb.get_index_stats()
+            results[agent] = {
+                "ok": True,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                **stats,
+            }
+        except Exception as exc:
+            results[agent] = {
+                "ok": False,
+                "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+                "error": f"{type(exc).__name__}: {str(exc)[:240]}",
+            }
+    return results
+
+
 def _retrieve_by_agent(query: str, top_k: int, agent: str) -> str:
+    started = time.perf_counter()
     try:
         kb = _get_agent_kb(agent)
         results = kb.retrieve(query=query, top_k=top_k)
     except Exception as e:
+        RAG_RETRIEVAL_LATENCY.labels(agent).observe(time.perf_counter() - started)
         return (
             "[RAG Error] 本地知识库暂不可用，请基于通用安全知识保守回答。"
             f"原因: {type(e).__name__}"
         )
+    RAG_RETRIEVAL_LATENCY.labels(agent).observe(time.perf_counter() - started)
     if not results:
         return "[RAG] 未命中本地知识库，请尝试改写查询或补充 knowledge_base 文档。"
 

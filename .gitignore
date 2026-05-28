@@ -93,3 +93,6 @@ backups/
 Thumbs.db
 .AppleDouble
 .LSOverride
+
+# Interview Cheatsheet
+cheatsheet.md

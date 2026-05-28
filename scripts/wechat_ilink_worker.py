@@ -9,15 +9,14 @@ import sys
 import time
 from contextlib import contextmanager
 
-from langchain_core.messages import HumanMessage
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from wellness_copilot import config as cfg
+from wellness_copilot.backend_queue import enqueue_agent_job
+from wellness_copilot.backend_telemetry import new_trace_id
 from wellness_copilot.detail import display_role, set_detail
-from wellness_copilot.graph import graph
 from wellness_copilot.integrations.wechat_ilink import (
     WeChatILinkError,
     get_client,
@@ -33,8 +32,6 @@ from wellness_copilot.integrations.local_logs import (
     pending_wechat_messages,
     pending_wechat_users,
 )
-from wellness_copilot.llm import extract_text_content
-from wellness_copilot.observability import ObservabilityTracker, TurnRecord
 
 _QUESTION_OR_COMMAND = re.compile(
     r"[？?]|怎么|如何|能不能|能否|可以吗|可不可以|吗\b|呢\b|"
@@ -164,7 +161,7 @@ def _build_content(client, text: str, media_ids: list[str]):
     return parts
 
 
-def _process_inbox_turn(client, rows: list[dict], tracker: ObservabilityTracker, detail: bool = False) -> bool:
+def _process_inbox_turn(client, rows: list[dict], detail: bool = False) -> bool:
     if not rows:
         return False
     if len(rows) > 1 and (_is_standalone_text(rows[-1]) or _is_bind_command_row(rows[-1])):
@@ -196,88 +193,29 @@ def _process_inbox_turn(client, rows: list[dict], tracker: ObservabilityTracker,
         client.remember_context(wxid, context_token)
     thread_id = f"wechat:{project_user_id}"
     content = _build_content(client, text, media_ids)
-    config = {"configurable": {"thread_id": thread_id}}
-    start = time.perf_counter()
-
-    final_answer = ""
-    routes = []
-    tools_used = []
-    retrieval_hits = 0
-    actuation_events = []
-    vision_calls = 0
-
+    trace_id = new_trace_id()
     with _worker_env(project_user_id, wxid, context_token):
-        stream_iter = graph.stream(
-            {
-                "messages": [HumanMessage(content=content)],
-                "profile_user_id": project_user_id,
-                "wechat_context": {
-                    "context_token": context_token,
-                    "chat_type": chat_type,
-                    "user_wxid": wxid,
-                    "project_user_id": project_user_id,
-                    "pre_accumulated": True,
-                },
-            },
-            config,
-        )
-        for event in stream_iter:
-            for key, value in event.items():
-                value = value or {}
-                if detail:
-                    print(f"[node] {key}", flush=True)
-                if value.get("input_accumulator_status") == "WAITING":
-                    if detail:
-                        print(f"[InputAccumulator]: waiting ({value.get('input_accumulator_reason', '')})", flush=True)
-                if value.get("messages"):
-                    final_answer = extract_text_content(value["messages"][-1])
-                if value.get("last_tools"):
-                    tools_used.extend(t for t in value["last_tools"] if t != "__RESET__")
-                if value.get("retrieval_hits") is not None:
-                    hit_delta = value.get("retrieval_hits") or 0
-                    if isinstance(hit_delta, tuple):
-                        hit_delta = hit_delta[-1] if hit_delta else 0
-                    retrieval_hits += int(hit_delta or 0)
-                if value.get("executed"):
-                    routes = value["executed"]
-                if value.get("actuation_log"):
-                    actuation_events.extend(value["actuation_log"])
-                if value.get("vision_extractions"):
-                    vision_calls += 1
-
-    if not final_answer:
-        final_answer = "抱歉，我这轮没有生成有效回复，请再发一次。"
-
-    if context_token:
-        client.send_message(context_token, text=final_answer, user_id=wxid)
-    elif wxid:
-        client.push_to_user(wxid, final_answer)
-    else:
-        print(f"[wechat_worker] no reply target; answer={final_answer[:120]}", flush=True)
-
-    latency_ms = (time.perf_counter() - start) * 1000
-    tracker.log_turn(
-        TurnRecord(
+        job = enqueue_agent_job(
+            user_id=project_user_id,
             thread_id=thread_id,
-            turn_index=int(time.time()),
-            route=",".join(r for r in routes if r != "FINISH") or "FINISH",
-            user_query=text or "[image]",
-            final_answer=final_answer,
-            tools_used=tools_used,
-            retrieval_hits=retrieval_hits,
-            citations_count=final_answer.count("[source:"),
-            latency_ms=latency_ms,
-            actuation_count=len(actuation_events),
-            vision_calls=vision_calls,
-            wechat_msgs_in=1,
-            wechat_msgs_out=1,
+            message=text or "[image]",
+            content=content,
+            source="wechat",
+            trace_id=trace_id,
+            wechat_context={
+                "context_token": context_token,
+                "chat_type": chat_type,
+                "user_wxid": wxid,
+                "project_user_id": project_user_id,
+                "pre_accumulated": True,
+            },
+            idempotency_key=f"wechat_inbox:{ids[0]}:{ids[-1]}",
         )
-    )
     if detail:
         print(
-            f"[wechat_worker] replied to wxid={display_role(wxid)} "
+            f"[wechat_worker] queued job={job.get('job_id')} trace={job.get('trace_id')} "
+            f"wxid={display_role(wxid)} "
             f"project_user_id={display_role(project_user_id)} "
-            f"tools={tools_used} actuation={len(actuation_events)}"
             f" inbox_ids={ids}"
             ,
             flush=True,
@@ -312,11 +250,11 @@ def _enqueue_update(client, update: dict, detail: bool = False) -> None:
         )
 
 
-def _drain_inbox(client, tracker: ObservabilityTracker, detail: bool = False) -> int:
+def _drain_inbox(client, detail: bool = False) -> int:
     processed = 0
     for user_id in pending_wechat_users(limit=20):
         rows = pending_wechat_messages(user_id, limit=20)
-        if _process_inbox_turn(client, rows, tracker, detail=detail):
+        if _process_inbox_turn(client, rows, detail=detail):
             processed += 1
     return processed
 
@@ -331,7 +269,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     set_detail(args.detail)
-    tracker = ObservabilityTracker()
     client = get_client()
     if not cfg.WECHAT_BOT_TOKEN:
         print("WECHAT_BOT_TOKEN is not configured. Run scripts/wechat_login.py first.")
@@ -353,7 +290,7 @@ def main() -> None:
                 _enqueue_update(client, update, detail=args.detail)
             if client.last_updates_cursor:
                 set_last_offset(client.last_updates_cursor)
-            _drain_inbox(client, tracker, detail=args.detail)
+            _drain_inbox(client, detail=args.detail)
             if args.once:
                 return
             time.sleep(cfg.WECHAT_WORKER_IDLE_SEC)
