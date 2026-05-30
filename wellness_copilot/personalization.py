@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List
 
+from . import isolation
 from .profile_store import get_user_profile, profile_subset_for, profile_to_prompt_text
 
 
@@ -340,8 +341,11 @@ def build_personalization_ctx(user_id: str) -> Dict[str, Any]:
     profile = get_user_profile(user_id)
     raw_json = profile_to_prompt_text(profile)
     constraints = render_active_constraints(profile)
+    # Isolation ① — each role normally gets only its role-cropped user card.
+    # When profile isolation is OFF (A/B eval), every role gets the FULL card.
+    crop = isolation.current().profile
     role_user_cards = {
-        role: render_user_card(profile_subset_for(role, profile))
+        role: render_user_card(profile_subset_for(role, profile) if crop else profile)
         for role in ("Trainer", "Nutritionist", "Psychologist", "Doctor", "Orchestrator")
     }
     return {

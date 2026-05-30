@@ -22,6 +22,7 @@ from __future__ import annotations
 import concurrent.futures
 from typing import Callable, Dict, List
 
+from .. import isolation
 from ._scratchpad import format_peer_notes
 from .analyst import run_analyst
 from .doctor import run_doctor
@@ -88,6 +89,18 @@ def _run_plan(
         _merge_result(acc, _safe_call(role, fn, peer_text))
         return acc
 
+    # Isolation ② — when peer isolation is OFF (A/B eval), run the batch
+    # *sequentially* and feed each finished expert's scratchpad note to the
+    # experts after it, so same-batch peers become mutually visible.
+    if not isolation.current().peer:
+        notes = dict(prior_notes)
+        for role, fn in runners:
+            peer_text = format_peer_notes(notes, self_role=role)
+            result = _safe_call(role, fn, peer_text)
+            _merge_result(acc, result)
+            notes.update((result or {}).get("agent_notes") or {})
+        return acc
+
     # Parallel fan-out. Experts in the *same plan batch* don't see each
     # other's scratchpad — Aggregator does the cross-domain integration.
     # Notes from *prior* batches (e.g., replan rounds) are still injected.
@@ -129,6 +142,14 @@ def dispatcher_node(state):
     prior_notes = dict(state.get("agent_notes") or {})
     pctx = dict(state.get("personalization_ctx") or {})
     episode_context = state.get("episode_context") or ""
+
+    # Isolation ③ — when history isolation is OFF (A/B eval), stash the full
+    # transcript into pctx so each expert can inject it (run_* signatures stay
+    # unchanged). No-op under normal (isolated) operation.
+    if not isolation.current().history:
+        pctx[isolation.PCTX_HISTORY_KEY] = isolation.render_transcript(
+            state.get("messages") or []
+        )
 
     batch = _run_plan(plan, user_id, user_question, prior_notes, pctx, episode_context)
 

@@ -9,6 +9,8 @@ Wellness Copilot 是一个面向个人健康管理的 LangGraph 多 Agent 系统
 > 2026-05-21 端到端评测基线：53 条覆盖训练、营养、医学、心理、多专家、多轮和执行场景的样本，273/273 条 deterministic assertions 通过，专家路由命中率 98.1%，LLM-as-Judge 综合均分 4.642/5，安全维度 4.981/5。
 >
 > 2026-05-29 后端化真实链路测评：FastAPI smoke 覆盖 `/healthz`、同步 chat、SSE、异步 job 全通过；真实 LLM chat 压测 10/10 成功，p50 1.93s、p95 35.02s；异步 job 压测 8/8 成功，p50 28.32s、p95 65.73s；最终测试库 24 个真实 job 全部 succeeded，0 dead job / 0 dead outbox。
+>
+> 2026-05-30 子 Agent 上下文隔离 A/B 因果评测：50 条跨域硬样本上，专家输出的跨域信息泄漏率隔离 22.5% vs 非隔离 35.5%；按 (样本,专家) 条件分析，当非隔离确实被污染时 judge 综合偏向隔离 63.6%（0 平局，lift +45.7%），未污染样本基本打平——量化证明隔离的质量收益来自"避免 rotten context 污染"，而非无差别变好。长历史维度呈长度依赖：6 轮无差异，推到 12–14 轮（触发历史摘要）后泄漏率隔离 0% vs 非隔离 25%。
 
 ## 技术亮点与工程深度
 
@@ -36,6 +38,14 @@ Wellness Copilot 是一个面向个人健康管理的 LangGraph 多 Agent 系统
 - **可观测性从“能跑”升级为“能定位瓶颈”**：统一 `trace_id` 串联 API、job、Agent turn、节点和 outbox 日志；`/metrics` 暴露 HTTP、Agent turn、node latency、job、queue lag、outbox、RAG latency 等指标。节点级评测显示 Orchestrator 占 64.0% wall time / 66.4% LLM time / 51.8% tokens，Critic 占 17.5% wall time / 36.2% tokens，Aggregator 占 15.5% wall time，证明主要优化目标是父 Agent 路由与多专家推理成本。
 - **RAG 冷启动被显式预热并量化**：API 和 worker 启动时可用 `BACKEND_PREWARM_RAG=1` 预热各专家知识库。真实预热中 API 总耗时约 94.9s，其中 nutritionist 65.7s、trainer 28.0s；worker 总耗时约 92.8s，其中 nutritionist 67.8s、trainer 23.7s。在线端到端 53 条样本只触发 4 次 RAG 调用，说明当前 RAG 主要问题是冷启动，不是单轮检索延迟。
 - **分层压测数据集覆盖真实业务形态**：新增 `eval/backend_load_dataset.jsonl`，53 条样本覆盖 nutrition、training、psychologist、doctor、multi_expert、multi_turn、profile_personalization、chitchat_boundary、progress_review、actuation 等 10 类；`scripts/load_backend.py` 支持 `--shuffle`、`--seed`、`--per-category`，报告自动输出成功率、p50/p95/max latency、queue lag、分类延迟和 backend counts。
+
+2026-05-30 子 Agent 上下文隔离 A/B 因果评测新增亮点（`docs/isolation_ab_eval.md`，`reports/isolation_ab_report_20260530-014804.json`，独立 judge 模型）：
+
+- **把“隔离提升质量”从直觉做成可证伪的因果实验**：新增运行期可切换隔离开关（`wellness_copilot/isolation.py`，profile / peer / history 三维可单独消融）+ pairwise A/B runner（`scripts/evaluate_isolation_ab.py`）+ 因果链分析（`scripts/analyze_isolation_report.py`）。同一输入跑隔离 ON / OFF 两个 arm，用成对偏好打分而不是已经贴顶的绝对分（现有 L5 safety 4.981 / coherence 4.981 已无区分度）。
+- **跨域信息泄漏被量化压低**：50 条跨域硬样本（`eval/isolation_hard_dataset.jsonl`，每条带 `leak_traps` 标注各专家不该出现的跨域词）上，专家输出的跨域泄漏率隔离 22.5%（16/71）vs 非隔离 35.5%（22/62）。
+- **给出因果链证据，而非聚合均值**：按 (样本,专家) 条件分析，在非隔离确实泄漏的样本里 judge 综合偏向隔离 63.6%（14/22，0 平局，lift +45.7%），未污染样本基本打平。这说明隔离的可评测质量收益来自“避免 rotten context”，而不是无差别变好——单看 E2E 聚合分（非隔离反而略高）会得出相反的错误结论。子专家里 Psychologist 受益最大（隔离 pairwise 胜率 81.8%），画像裁剪几乎全可见的 Doctor 不受影响（全平），与机制预期一致。
+- **rotten context 是长度依赖的**：仅翻 history 维度，6 轮对话两 arm 泄漏率相同（14.3%）；推到 12–14 轮、越过 20 条消息的历史摘要阈值后，泄漏率隔离 0% vs 非隔离 25%。
+- **成本反常被根因定位**：用 `scripts/diagnose_isolation_tokens.py` 证明“隔离更费 token”是 5 个离群样本的路由分歧造成的均值假象（逐样本中位 token 差 −54、非隔离略高、符合理论），且两 arm RAG 调用均为 0，排除 RAG 假设；并发现 profile 隔离会连带改变 Orchestrator 路由，是一个值得隔离实验注意的方法学副作用。
 
 ### 1. 从“聊天机器人”推进到“可执行 Agent 系统”
 
@@ -101,6 +111,15 @@ Orchestrator 是父 Agent，它把子专家封装成 LangChain tools：
 - 同伴要点：通过 `format_peer_notes` 传递 scratchpad。
 
 这样减少 token 成本，也防止某个专家看到不该看的领域信息。Aggregator 和 Critic 看到的是结构化专家结果和 scratchpad，而不是一堆混乱 tool trace。
+
+这个隔离不是只在架构上声称，而是用 A/B 因果实验量化过（完整方法和数据见 `docs/isolation_ab_eval.md`）。做法是加一个运行期可切换的隔离开关，对同一输入跑“隔离 ON / OFF”两个 arm，再用成对偏好 judge 对比：
+
+- 在 50 条跨域硬样本上，关掉隔离会让专家输出的跨域信息泄漏率从 22.5% 升到 35.5%。
+- 关键不是聚合分，而是因果链：按 (样本,专家) 条件分析，正是在“非隔离确实被污染”的样本里，judge 综合偏向隔离 63.6%（0 平局，lift +45.7%），未污染样本基本打平。也就是说隔离的可评测质量收益来自“避免 rotten context 污染”，而不是无差别变好——这一点单看 E2E 聚合分（非隔离反而略高）会得出相反结论。
+- 子专家里 Psychologist 受益最大（隔离 pairwise 胜率 81.8%），而画像裁剪几乎覆盖所有字段的 Doctor 不受影响（全平），和“隔离改变了谁的输入”这一机制预期一致。
+- 长历史维度呈长度依赖：6 轮对话两 arm 泄漏率相同，推到 12–14 轮触发历史摘要后，泄漏率隔离 0% vs 非隔离 25%。
+
+这让“子 Agent 输入隔离”从一句架构描述，变成了一个有量化收益、能定位收益来源、也讲得清边界的可证伪结论。
 
 ### 5. LangGraph 持久化状态的“轮边界清理”
 
@@ -224,6 +243,7 @@ Docker Compose 提供五个长期运行服务：
 - `scripts/evaluate_output.py`：端到端输出评测，支持 deterministic assertions 和 LLM-as-Judge。
 - `scripts/evaluate_rag.py`：RAG 两阶段检索评测。
 - `scripts/evaluate_architecture.py`：架构专项评测。
+- `scripts/evaluate_isolation_ab.py` / `scripts/analyze_isolation_report.py` / `scripts/diagnose_isolation_tokens.py`：子 Agent 上下文隔离 A/B 因果评测、因果链分析与 token 成本诊断（见 `docs/isolation_ab_eval.md`）。
 - smoke tests：coreference、dynamic replan、critic scratchpad、plan execute 等。
 
 这让项目可以讲清楚“怎么证明系统没退化”，而不是只靠主观 demo。
@@ -311,6 +331,8 @@ ORCHESTRATOR_LLM_OUTPUT_VERSION=responses/v1
 uvicorn wellness_copilot.api:app --host 127.0.0.1 --port 8000
 ```
 
+浏览器访问 `http://127.0.0.1:8000/` 可打开前端操作台。前端复用同一个 FastAPI 服务，支持纯文本聊天、单图单文聊天、微信扫码登录 iLink Bot，以及微信 `wxid -> project_user_id` 用户映射；如果配置了 `BACKEND_API_KEY`，页面里的 API Key 会作为 `X-API-Key` 发送。
+
 健康检查和同步聊天：
 
 ```bash
@@ -319,6 +341,15 @@ curl -X POST http://127.0.0.1:8000/v1/chat \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BACKEND_API_KEY" \
   -d '{"user_id":"demo","message":"你好，用一句话介绍你能做什么。"}'
+```
+
+单图单文聊天把图片放在 `image.data`，支持裸 base64 或 `data:image/...;base64,...`：
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $BACKEND_API_KEY" \
+  -d '{"user_id":"demo","message":"这张早餐大概怎么样？","image":{"mime_type":"image/png","data":"<base64>"}}'
 ```
 
 SSE 流式聊天会持续返回 `node_start` / `node_output` / `final` 事件：
@@ -426,6 +457,7 @@ python scripts/outbox_dispatcher.py
 说明：
 
 - `wechat_login.py` 会扫码获取 `WECHAT_BOT_TOKEN` 并写回 `.env`。
+- 也可以在前端右侧“微信登录”里点“扫码”，页面会获取二维码并轮询授权结果；扫码成功后 token 会写入运行时 SQLite kv，正在运行的 worker 会自动读取。
 - worker 长轮询微信消息，先写入微信 inbox，再按用户聚合文本/图片碎片，完整后写入 SQLite job queue。
 - agent job worker 消费 job、调用 LangGraph，并把微信回复写入 outbox。
 - outbox dispatcher 扫描 outbox 和 `reminders` 表，到点主动推送。
@@ -462,6 +494,8 @@ docker compose logs -f api worker agent-worker dispatcher backup
 docker compose exec worker python scripts/wechat_login.py --env /app/.env --qr-path /app/tmp/wechat_qrcode.png --terminal-qr --no-open
 docker compose restart worker
 ```
+
+如果使用前端扫码登录，不需要进入容器执行上面的命令；worker 会从运行时存储读取扫码保存的 token。
 
 容器内 Apple Calendar 校验：
 
@@ -1032,7 +1066,8 @@ Compose 服务：
 
 - `.env` 不进镜像，不进 Git。
 - `.dockerignore` 排除了本地数据库、WAL/SHM、tmp 二维码、日志、缓存和备份。
-- 应用不需要开放业务端口，只要出站 HTTPS 和 SSH 入站。
+- 前端公网访问需要开放或反代 `8000`；只跑微信入口时可以不开放业务端口。
+- 公网部署务必设置强随机 `BACKEND_API_KEY`，前端会用它访问受保护接口。
 
 ## 评测与回归
 
@@ -1069,6 +1104,7 @@ python scripts/smoke_mcp_tools.py
 - `reports/backend_upgrade_report_20260529-015011.md`
 - `reports/backend_upgrade_report_20260529-015243.md`
 - `reports/backend_upgrade_report_20260529-015629.md`
+- `reports/isolation_ab_report_20260530-014804.json`（子 Agent 隔离 A/B，配套 `docs/isolation_ab_eval.md`）
 
 说明：这些报告是仓库中的历史/阶段性回归产物；如果要在新服务器上展示最新结果，建议重新运行上述评测命令。
 

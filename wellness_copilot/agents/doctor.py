@@ -14,6 +14,7 @@ from ..personalization import (
 )
 from ..tools import retrieve_doctor_knowledge
 from ..utils import create_agent
+from .. import isolation
 from ._scratchpad import build_scratchpad_note
 from .fallbacks import expert_error_update
 
@@ -205,6 +206,7 @@ def _build_doctor_agent(pctx: dict, peer_notes_text: str, episode_context: str =
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
+        f"{isolation.noniso_history_section(pctx)}"
         "用户卡片就是本轮可用画像；不要为了读取画像而调用工具。"
         "如需要本地医学边界、症状分诊、慢病指标或健康筛查语料，可主动调用 retrieve_doctor_knowledge。"
         f"{mcp_hint}"

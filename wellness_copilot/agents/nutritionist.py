@@ -21,6 +21,7 @@ from ..tools import (
 )
 from ..integrations.local_logs import extract_actuation_events
 from ..utils import create_agent
+from .. import isolation
 from ..llm import extract_text_content, llm
 from ..personalization import (
     build_personalization_ctx,
@@ -367,6 +368,7 @@ def _build_nutritionist_agent(pctx: dict, peer_notes_text: str, episode_context:
         f"{decision_section}"
         f"{_episode_section(episode_context)}"
         f"{peer_section}"
+        f"{isolation.noniso_history_section(pctx)}"
         "用户卡片就是本轮可用画像；不要说「我先看看/了解你的基本信息」，不要为了读取画像而调用工具。"
         "若已有足够信息，必须直接给出方案；只有用户提供新信息时才调用结构化工具记录。"
         "如需要营养/食材/热量计算等知识库支持，可主动调用 retrieve_nutritionist_knowledge。"
