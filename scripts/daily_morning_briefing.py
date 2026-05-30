@@ -10,7 +10,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from wellness_copilot.integrations.local_logs import summarize_recent_logs
-from wellness_copilot.integrations.wechat_ilink import get_client
+from wellness_copilot.integrations.wechat_ilink import get_client, get_runtime_bot_token
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +26,7 @@ def main() -> None:
     args = parse_args()
     summary = summarize_recent_logs(user_id=args.user_id, days_back=args.days)
     text = f"早安复盘：{summary or '最近还没有结构化日志，今天可以先记录一餐或一次训练。'}"
-    if args.dry_run or not os.environ.get("WECHAT_BOT_TOKEN"):
+    if args.dry_run or not get_runtime_bot_token():
         print(text)
         return
     if not args.wxid:

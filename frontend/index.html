@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wellness Copilot</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="sidebar" aria-label="会话设置">
+        <div class="brand">
+          <div class="brand-mark">W</div>
+          <div>
+            <h1>Wellness Copilot</h1>
+            <p id="healthStatus">连接中</p>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>User ID</span>
+          <input id="userId" autocomplete="off" value="default_user" />
+        </label>
+
+        <label class="field">
+          <span>Thread ID</span>
+          <input id="threadId" autocomplete="off" placeholder="自动创建" />
+        </label>
+
+        <label class="field">
+          <span>API Key</span>
+          <input id="apiKey" autocomplete="off" type="password" placeholder="X-API-Key" />
+        </label>
+
+        <div class="sidebar-actions">
+          <button id="newThreadBtn" type="button">新会话</button>
+          <button id="clearChatBtn" type="button">清屏</button>
+        </div>
+
+        <div class="metric-strip">
+          <div>
+            <span>路由</span>
+            <strong id="routeMetric">-</strong>
+          </div>
+          <div>
+            <span>耗时</span>
+            <strong id="latencyMetric">-</strong>
+          </div>
+          <div>
+            <span>视觉</span>
+            <strong id="visionMetric">-</strong>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat-panel" aria-label="图文聊天">
+        <header class="panel-header">
+          <div>
+            <h2>图文聊天</h2>
+            <p id="chatState">就绪</p>
+          </div>
+          <button id="retryJobsBtn" type="button">刷新任务</button>
+        </header>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <div id="imagePreview" class="image-preview hidden">
+            <img id="previewImg" alt="待发送图片" />
+            <button id="removeImageBtn" type="button" aria-label="移除图片">×</button>
+          </div>
+          <div class="composer-row">
+            <label class="icon-button" for="imageInput" title="选择图片" aria-label="选择图片">
+              <span aria-hidden="true">＋</span>
+            </label>
+            <input id="imageInput" class="hidden-input" type="file" accept="image/jpeg,image/png,image/webp" />
+            <textarea id="messageInput" rows="1" placeholder="输入健康问题、餐食说明或训练反馈"></textarea>
+            <button id="sendBtn" type="submit">发送</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="wechat-panel" aria-label="微信绑定">
+        <header class="panel-header compact">
+          <div>
+            <h2>微信登录</h2>
+            <p id="loginState">未检查</p>
+          </div>
+          <button id="qrLoginBtn" type="button">扫码</button>
+        </header>
+
+        <div id="qrPanel" class="qr-panel hidden">
+          <img id="qrImage" alt="微信登录二维码" />
+          <p id="qrHint">请用微信扫码，并在手机上确认授权。</p>
+        </div>
+
+        <header class="panel-header compact subhead">
+          <div>
+            <h2>用户映射</h2>
+            <p id="bindingState">未加载</p>
+          </div>
+          <button id="refreshBindingsBtn" type="button">刷新</button>
+        </header>
+
+        <form id="bindingForm" class="binding-form">
+          <label class="field">
+            <span>WeChat wxid</span>
+            <input id="wechatWxid" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Project User ID</span>
+            <input id="projectUserId" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>备注</span>
+            <input id="displayName" autocomplete="off" />
+          </label>
+          <button id="bindBtn" type="submit">绑定</button>
+        </form>
+
+        <div id="bindingsList" class="bindings-list"></div>
+      </aside>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

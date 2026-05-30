@@ -34,10 +34,62 @@ ITEM_VOICE = 3
 ITEM_FILE = 4
 ITEM_VIDEO = 5
 _HEX_32 = re.compile(r"^[0-9a-fA-F]{32}$")
+_BOT_TOKEN_KEY = "wechat_ilink:bot_token"
+_BOT_BASE_URL_KEY = "wechat_ilink:base_url"
+_BOT_ACCOUNT_ID_KEY = "wechat_ilink:account_id"
+_BOT_LOGIN_USER_ID_KEY = "wechat_ilink:login_user_id"
+_BOT_UPDATED_AT_KEY = "wechat_ilink:login_updated_at"
 
 
 class WeChatILinkError(RuntimeError):
     pass
+
+
+def get_runtime_bot_token() -> str:
+    return os.environ.get("WECHAT_BOT_TOKEN") or get_kv(_BOT_TOKEN_KEY, "")
+
+
+def get_runtime_base_url() -> str:
+    return (
+        os.environ.get("WECHAT_ILINK_BASE_URL")
+        or get_kv(_BOT_BASE_URL_KEY, "")
+        or config.WECHAT_ILINK_BASE_URL
+    )
+
+
+def save_runtime_login(
+    *,
+    bot_token: str,
+    base_url: str = "",
+    account_id: str = "",
+    login_user_id: str = "",
+) -> dict[str, Any]:
+    token = str(bot_token or "").strip()
+    if not token:
+        raise ValueError("bot_token must not be empty")
+    set_kv(_BOT_TOKEN_KEY, token)
+    if base_url:
+        set_kv(_BOT_BASE_URL_KEY, str(base_url).strip())
+    if account_id:
+        set_kv(_BOT_ACCOUNT_ID_KEY, str(account_id).strip())
+    if login_user_id:
+        set_kv(_BOT_LOGIN_USER_ID_KEY, str(login_user_id).strip())
+    set_kv(_BOT_UPDATED_AT_KEY, str(int(time.time())))
+    return runtime_login_status()
+
+
+def runtime_login_status() -> dict[str, Any]:
+    env_token = os.environ.get("WECHAT_BOT_TOKEN", "")
+    stored_token = get_kv(_BOT_TOKEN_KEY, "")
+    base_url = get_runtime_base_url()
+    return {
+        "configured": bool(env_token or stored_token),
+        "source": "env" if env_token else ("runtime" if stored_token else ""),
+        "base_url": base_url,
+        "account_id": os.environ.get("WECHAT_ACCOUNT_ID") or get_kv(_BOT_ACCOUNT_ID_KEY, ""),
+        "login_user_id": os.environ.get("WECHAT_LOGIN_USER_ID") or get_kv(_BOT_LOGIN_USER_ID_KEY, ""),
+        "updated_at": get_kv(_BOT_UPDATED_AT_KEY, ""),
+    }
 
 
 @dataclass
@@ -53,8 +105,8 @@ class NormalizedUpdate:
 
 class WeChatILinkClient:
     def __init__(self, bot_token: str | None = None, base_url: str | None = None):
-        self.bot_token = bot_token if bot_token is not None else config.WECHAT_BOT_TOKEN
-        self.base_url = (base_url or config.WECHAT_ILINK_BASE_URL).rstrip("/")
+        self.bot_token = bot_token if bot_token is not None else get_runtime_bot_token()
+        self.base_url = (base_url or get_runtime_base_url()).rstrip("/")
         self.last_updates_cursor = ""
 
     def _url(
@@ -518,7 +570,9 @@ _CLIENT: WeChatILinkClient | None = None
 
 def get_client() -> WeChatILinkClient:
     global _CLIENT
-    if _CLIENT is None:
+    token = get_runtime_bot_token()
+    base_url = get_runtime_base_url().rstrip("/")
+    if _CLIENT is None or _CLIENT.bot_token != token or _CLIENT.base_url != base_url:
         _CLIENT = WeChatILinkClient()
     return _CLIENT
 

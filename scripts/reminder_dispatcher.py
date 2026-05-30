@@ -11,7 +11,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from wellness_copilot.integrations.local_logs import due_reminders, mark_reminder_delivered
-from wellness_copilot.integrations.wechat_ilink import WeChatILinkError, get_client
+from wellness_copilot.integrations.wechat_ilink import WeChatILinkError, get_client, get_runtime_bot_token
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
 def _deliver(row: dict) -> bool:
     target = row.get("target_wxid") or row.get("user_id")
     text = row.get("text") or ""
-    if not os.environ.get("WECHAT_BOT_TOKEN"):
+    if not get_runtime_bot_token():
         print(f"[reminder_dispatcher] would push to wxid={target}: {text}")
         return False
     client = get_client()

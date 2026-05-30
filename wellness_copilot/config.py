@@ -101,6 +101,7 @@ BACKEND_MAX_PENDING_JOBS = int(os.environ.get("BACKEND_MAX_PENDING_JOBS", "50"))
 BACKEND_MAX_RUNNING_JOBS = int(os.environ.get("BACKEND_MAX_RUNNING_JOBS", "8"))
 BACKEND_PREWARM_RAG = _env_bool("BACKEND_PREWARM_RAG", False)
 BACKEND_PREWARM_RAG_QUERY = os.environ.get("BACKEND_PREWARM_RAG_QUERY", "健康建议")
+WEB_CHAT_MAX_IMAGE_BYTES = int(os.environ.get("WEB_CHAT_MAX_IMAGE_BYTES", str(8 * 1024 * 1024)))
 BACKEND_RETRY_DELAYS_SEC = tuple(
     int(part.strip())
     for part in os.environ.get("BACKEND_RETRY_DELAYS_SEC", "30,60,120").split(",")

@@ -6,9 +6,10 @@ Docker Compose services sharing the same `./data` volume.
 ## 1. Prepare Server
 
 Recommended baseline: Ubuntu 22.04/24.04, 2C4G minimum. For RAG embedding and
-reranking inside the container, 4C8G plus a small swap file is safer. The app
-does not expose an HTTP port; it only needs outbound HTTPS for LLM, WeChat
-iLink, iCloud CalDAV, HuggingFace/model mirrors, and optional OSS.
+reranking inside the container, 4C8G plus a small swap file is safer. If the
+web frontend is enabled, expose or reverse-proxy TCP `8000`; otherwise the
+worker-only flow only needs outbound HTTPS for LLM, WeChat iLink, iCloud
+CalDAV, HuggingFace/model mirrors, and optional OSS.
 
 ```bash
 curl -fsSL https://get.docker.com | sh
@@ -33,6 +34,7 @@ At minimum set:
 - `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` for non-orchestrator text nodes
 - `ORCHESTRATOR_LLM_*` if the parent agent should use a stronger/slower model
 - `MULTIMODAL_LLM_*` if image grounding should call a real VLM
+- `BACKEND_API_KEY` to protect the public API and frontend calls
 - `WECHAT_BOT_TOKEN` after running the WeChat login helper
 - `ICLOUD_USERNAME`, `ICLOUD_APP_SPECIFIC_PASSWORD`, `ICLOUD_CALDAV_URL`,
   `ICLOUD_CALENDAR_NAME` if Apple Calendar sync is enabled
@@ -60,6 +62,11 @@ starts.
 docker compose up -d --build
 docker compose logs -f worker dispatcher backup
 ```
+
+The FastAPI service serves the frontend at `http://<server-ip>:8000/`. The page
+supports text chat, one-image-plus-text chat, WeChat QR login, and WeChat
+`wxid` binding management. QR login saves the bot token in the runtime SQLite
+kv store; the worker picks it up without a container restart.
 
 First-time WeChat binding:
 

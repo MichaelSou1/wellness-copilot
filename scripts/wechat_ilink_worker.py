@@ -21,6 +21,7 @@ from wellness_copilot.integrations.wechat_ilink import (
     WeChatILinkError,
     get_client,
     get_last_offset,
+    get_runtime_bot_token,
     normalize_update,
     set_last_offset,
 )
@@ -270,7 +271,7 @@ def main() -> None:
     args = parse_args()
     set_detail(args.detail)
     client = get_client()
-    if not cfg.WECHAT_BOT_TOKEN:
+    if not get_runtime_bot_token():
         print("WECHAT_BOT_TOKEN is not configured. Run scripts/wechat_login.py first.")
         if args.once:
             return
@@ -278,12 +279,13 @@ def main() -> None:
     backoff = 1.0
     while True:
         try:
-            if not cfg.WECHAT_BOT_TOKEN:
+            if not get_runtime_bot_token():
                 time.sleep(min(30, backoff))
                 backoff = min(60, backoff * 2)
                 if args.once:
                     return
                 continue
+            client = get_client()
             updates = client.get_updates(timeout=cfg.WECHAT_POLL_TIMEOUT_SEC, offset=get_last_offset())
             backoff = 1.0
             for update in updates:
