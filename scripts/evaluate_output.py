@@ -33,6 +33,7 @@ import argparse
 from contextlib import contextmanager
 import gzip
 import json
+import os
 import re
 import sys
 import threading
@@ -76,7 +77,57 @@ from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from wellness_copilot.graph import graph  # noqa: E402
 from wellness_copilot.llm import create_llm, extract_text_content  # noqa: E402
 from wellness_copilot.profile_store import update_user_profile  # noqa: E402
+from wellness_copilot.episode_store import append_episode, total_episode_count  # noqa: E402
 from wellness_copilot import config as _cfg  # noqa: E402
+
+# --- Episode seeding (Phase 1/2 of rag-diagnosis-plan) ------------------------
+# The output eval historically created a fresh user per sample and seeded only
+# the profile, never any episodes. Combined with EPISODE_SEMANTIC_MIN_COUNT=8,
+# the episodic-memory RAG (push-RAG → episode_context) NEVER fired during eval,
+# so the personalization dimension (3.70 baseline) was measured with that whole
+# subsystem absent. Setting EVAL_SEED_EPISODES=1 turns on per-sample episode
+# seeding from a labeled seed file so we can measure the true contribution.
+EVAL_SEED_EPISODES = os.environ.get("EVAL_SEED_EPISODES", "").strip().lower() in {"1", "true", "yes"}
+EVAL_EPISODE_SEED_PATH = os.environ.get(
+    "EVAL_EPISODE_SEED_PATH", str(PROJECT_ROOT / "eval" / "episode_seeds.jsonl")
+)
+
+# Per-sample wall-clock watchdog. The upstream LLM proxy can drop/stall a
+# connection in a way the SDK request timeout does not always bound; without a
+# hard cap a single wedged sample hangs the whole run. EVAL_SAMPLE_TIMEOUT_SEC>0
+# raises after that many seconds (main thread, via SIGALRM) so the sample is
+# recorded as an error and the run continues. Default 0 = off (prod behavior).
+try:
+    EVAL_SAMPLE_TIMEOUT_SEC = int(os.environ.get("EVAL_SAMPLE_TIMEOUT_SEC", "0") or "0")
+except ValueError:
+    EVAL_SAMPLE_TIMEOUT_SEC = 0
+
+
+class _SampleTimeout(Exception):
+    pass
+
+
+@contextmanager
+def _sample_alarm(seconds: int):
+    """Hard wall-clock cap for one sample (no-op when seconds<=0 or off-thread)."""
+    import signal
+    if seconds <= 0:
+        yield
+        return
+    try:
+        def _handler(signum, frame):
+            raise _SampleTimeout(f"sample exceeded {seconds}s wall-clock budget")
+        old = signal.signal(signal.SIGALRM, _handler)
+    except (ValueError, AttributeError):
+        # Not in main thread / platform without SIGALRM — skip the watchdog.
+        yield
+        return
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 _PROFILE_TLS = threading.local()
@@ -584,6 +635,102 @@ def _seed_profile(user_id: str, profile_patch: dict) -> None:
     """Pre-write test profile so the graph can read it during the run."""
     if profile_patch:
         update_user_profile(user_id, profile_patch)
+
+
+# Append a compact line per completed sample so a kill (e.g. stall watchdog)
+# preserves which samples are done -> resume via --rerun on the remainder.
+EVAL_PARTIAL_PATH = os.environ.get("EVAL_PARTIAL_PATH", "").strip()
+
+
+def _flush_partial(result: dict) -> None:
+    if not EVAL_PARTIAL_PATH:
+        return
+    try:
+        with open(EVAL_PARTIAL_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "id": result.get("id"),
+                "category": result.get("category"),
+                "scores": result.get("scores"),
+                "overall_score": result.get("overall_score"),
+                "episode_context_len": result.get("episode_context_len", 0),
+                "error": result.get("error", ""),
+            }, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+_EPISODE_SEEDS_CACHE: dict | None = None
+
+
+def _load_episode_seeds() -> dict:
+    """Load eval/episode_seeds.jsonl → {sample_id: [episode, ...]}.
+
+    Each line: {"id": <sample_id>, "episodes": [{query, experts, gist, facts?,
+    relevant?}, ...]}. ``relevant`` is ground-truth used by the Phase-2
+    retrieval eval; it is ignored when seeding the output eval.
+    """
+    global _EPISODE_SEEDS_CACHE
+    if _EPISODE_SEEDS_CACHE is not None:
+        return _EPISODE_SEEDS_CACHE
+    seeds: dict = {}
+    path = Path(EVAL_EPISODE_SEED_PATH)
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            seeds[rec["id"]] = rec.get("episodes", [])
+    _EPISODE_SEEDS_CACHE = seeds
+    return seeds
+
+
+# Cap how many episodes to seed per user (0 = all). Used by the MIN_COUNT
+# trade-off sweep to simulate users at a given history depth. We keep the
+# relevant episodes (priority) and append them FIRST (older), distractors LAST
+# (newer), so the "recent 2" injected by recency are distractors and the
+# relevant history only surfaces via the gated SEMANTIC branch — isolating the
+# gate's effect.
+EVAL_SEED_EPISODE_LIMIT = int(os.environ.get("EVAL_SEED_EPISODE_LIMIT", "0") or "0")
+
+
+def _select_episodes(episodes: list[dict], limit: int) -> list[dict]:
+    if limit <= 0 or len(episodes) <= limit:
+        relevant = [e for e in episodes if e.get("relevant")]
+        distractors = [e for e in episodes if not e.get("relevant")]
+        return relevant + distractors
+    relevant = [e for e in episodes if e.get("relevant")]
+    distractors = [e for e in episodes if not e.get("relevant")]
+    chosen = relevant[:limit]
+    chosen += distractors[: max(0, limit - len(chosen))]
+    return chosen  # relevant first (older), distractors last (newer)
+
+
+def _seed_episodes(user_id: str, episodes: list[dict]) -> int:
+    """Append seed episodes for this user and (re)build the FAISS index.
+
+    Returns the number of episodes seeded. We rebuild the semantic index
+    explicitly because EPISODE_EMBED_ON_WRITE_ENABLED defaults off — without
+    the index, retrieve_similar() returns nothing even above MIN_COUNT.
+    """
+    if not episodes:
+        return 0
+    episodes = _select_episodes(episodes, EVAL_SEED_EPISODE_LIMIT)
+    for ep in episodes:
+        append_episode(
+            user_id,
+            query=ep.get("query", ""),
+            experts=ep.get("experts", []) or [],
+            gist=ep.get("gist", ""),
+            facts=ep.get("facts") or None,
+        )
+    # Build the semantic index so the push-RAG semantic branch can fire.
+    try:
+        from wellness_copilot.episode_memory import EpisodeMemory
+        EpisodeMemory(user_id).rebuild_from_store()
+    except Exception as exc:  # pragma: no cover - index build is best-effort
+        print(f"  [WARN] episode index rebuild failed for {user_id}: {exc}")
+    return total_episode_count(user_id)
 
 
 def _run_sample(
@@ -1249,6 +1396,18 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
         round(sum(quant_samples) / len(quant_samples), 3) if quant_samples else None
     )
 
+    # Episodic-memory push-RAG fire rate: of all samples, how many actually had
+    # a non-empty episode_context injected by TurnStart. Baseline (no seeding)
+    # should be 0% — proving the episodic RAG never fired during eval.
+    ep_ctx_present = [r for r in results if (r.get("episode_context") or "").strip()]
+    episode_context_present_rate = (
+        round(len(ep_ctx_present) / len(results), 3) if results else None
+    )
+    avg_episode_context_len = (
+        round(sum(r.get("episode_context_len", 0) for r in results) / len(results), 1)
+        if results else None
+    )
+
     # Average tool/RAG counts and replan count
     avg_rag_calls = (
         round(sum(r.get("rag_calls", 0) for r in results) / len(results), 2) if results else None
@@ -1289,6 +1448,8 @@ def _aggregate(results: list[dict], dataset_path: str, judge_enabled: bool) -> d
             "personalization_quantification_total": len(quant_samples),
             "avg_rag_calls": avg_rag_calls,
             "avg_retrieval_hits": avg_retrieval_hits,
+            "episode_context_present_rate": episode_context_present_rate,
+            "avg_episode_context_len": avg_episode_context_len,
         },
         "scores": {
             "overall_avg": overall_avg,
@@ -1333,10 +1494,19 @@ def _run_samples(
         user_id = f"eval_{sid}_{uuid.uuid4().hex[:8]}"
         _seed_profile(user_id, sample.get("profile", {}))
 
+        seeded_episode_count = 0
+        if EVAL_SEED_EPISODES:
+            seeds = _load_episode_seeds().get(sid, [])
+            seeded_episode_count = _seed_episodes(user_id, seeds)
+            if seeds:
+                print(f"  [SEED] {seeded_episode_count} episodes seeded for {sid}")
+
         try:
-            answer, state, performance = _run_sample(sample, user_id, verbose=verbose)
+            with _sample_alarm(EVAL_SAMPLE_TIMEOUT_SEC):
+                answer, state, performance = _run_sample(sample, user_id, verbose=verbose)
         except Exception as exc:
-            print(f"  [ERROR] graph raised: {exc}")
+            label = "TIMEOUT" if isinstance(exc, _SampleTimeout) else "ERROR"
+            print(f"  [{label}] graph raised: {exc}")
             results.append({
                 "id": sid,
                 "category": category,
@@ -1351,6 +1521,7 @@ def _run_samples(
                 "overall_score": None,
                 "performance": {},
             })
+            _flush_partial(results[-1])
             continue
 
         if not answer:
@@ -1391,6 +1562,14 @@ def _run_samples(
             1 for t in tools_used if isinstance(t, str) and t.startswith("retrieve_") and t.endswith("_knowledge")
         )
 
+        # Phase-1 instrumentation: capture the episodic-memory push-RAG context
+        # that TurnStart injected. Empty here == the episodic RAG never fired.
+        episode_context = state.get("episode_context") or ""
+        ep_ctx_len = len(episode_context)
+        if EVAL_SEED_EPISODES:
+            ep_flag = "present" if episode_context.strip() else "EMPTY"
+            print(f"  episode_context: {ep_flag} (len={ep_ctx_len}, seeded={seeded_episode_count})")
+
         results.append({
             "id": sid,
             "category": category,
@@ -1400,6 +1579,9 @@ def _run_samples(
             "replan_count": int(state.get("replan_count", 0) or 0),
             "rag_calls": rag_calls,
             "retrieval_hits": int(state.get("retrieval_hits", 0) or 0),
+            "seeded_episode_count": seeded_episode_count,
+            "episode_context_len": ep_ctx_len,
+            "episode_context": episode_context,
             "tools_used": tools_used,
             "assertions": assertions,
             "assertion_pass": assertion_pass,
@@ -1408,6 +1590,7 @@ def _run_samples(
             "overall_score": _overall(scores),
             "performance": performance,
         })
+        _flush_partial(results[-1])
 
     return results
 
@@ -1452,6 +1635,12 @@ def _print_summary(report: dict, no_judge: bool) -> None:
             print(f"  avg rag calls / sample     : {arch['avg_rag_calls']}")
         if arch.get("avg_retrieval_hits") is not None:
             print(f"  avg retrieval hits / sample: {arch['avg_retrieval_hits']}")
+        ecpr = arch.get("episode_context_present_rate")
+        if ecpr is not None:
+            print(
+                f"  episode_context present    : {ecpr:.1%}   "
+                f"(avg len {arch.get('avg_episode_context_len')})"
+            )
         dist = arch.get("critic_verdict_dist") or {}
         if dist:
             ordered = sorted(dist.items(), key=lambda kv: -kv[1])

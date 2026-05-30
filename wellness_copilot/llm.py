@@ -1,3 +1,4 @@
+import os
 from typing import List
 from langchain_openai import ChatOpenAI
 from . import config  # Ensure .env is loaded
@@ -5,6 +6,38 @@ from . import config  # Ensure .env is loaded
 LLM_MAX_ATTEMPTS = 3
 # ChatOpenAI/OpenAI SDK `max_retries` counts retries after the first attempt.
 LLM_MAX_RETRIES = LLM_MAX_ATTEMPTS - 1
+
+# Optional per-request timeout (seconds). Unset → None → OpenAI SDK default
+# (~600s), preserving prior behavior. Set LLM_REQUEST_TIMEOUT_SEC to fail fast
+# on dropped/stalled connections so max_retries can recover on a fresh socket.
+def _request_timeout():
+    raw = os.environ.get("LLM_REQUEST_TIMEOUT_SEC", "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _maybe_http_client():
+    """Optionally return an httpx client that disables connection keep-alive.
+
+    Against a flaky upstream proxy, pooled keep-alive connections can go
+    half-dead and the next request wedges on the stale socket (a fresh process
+    works, a long-lived one hangs on its 2nd+ call). LLM_DISABLE_KEEPALIVE=1
+    forces a new connection per request, sidestepping the stale-socket hang.
+    Unset → None → default pooled client (prior behavior).
+    """
+    if os.environ.get("LLM_DISABLE_KEEPALIVE", "").strip().lower() not in {"1", "true", "yes"}:
+        return None
+    import httpx
+    t = _request_timeout()
+    return httpx.Client(
+        limits=httpx.Limits(max_keepalive_connections=0, max_connections=20),
+        timeout=t if t is not None else httpx.Timeout(60.0),
+        headers={"Connection": "close"},
+    )
 
 
 def _validate_llm_config(profile: dict):
@@ -64,6 +97,12 @@ def _base_llm_kwargs(profile: dict):
         "api_key": profile["api_key"],
         "max_retries": LLM_MAX_RETRIES,
     }
+    timeout = _request_timeout()
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    http_client = _maybe_http_client()
+    if http_client is not None:
+        kwargs["http_client"] = http_client
 
     # GLM-4.7 / GLM-5 系列用 thinking.type 控制思考模式。
     # ChatOpenAI 会把 extra_body 合并进 OpenAI-compatible 请求体。
