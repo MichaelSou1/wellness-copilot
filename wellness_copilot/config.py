@@ -121,7 +121,10 @@ ICLOUD_CALENDAR_NAME = os.environ.get("ICLOUD_CALENDAR_NAME", "")
 EPISODE_STORE_PATH = os.environ.get("EPISODE_STORE_PATH", "episode_store.json")
 EPISODE_SEMANTIC_RETRIEVAL_ENABLED = _env_bool("EPISODE_SEMANTIC_RETRIEVAL_ENABLED", True)
 EPISODE_EMBED_ON_WRITE_ENABLED = _env_bool("EPISODE_EMBED_ON_WRITE_ENABLED", False)
-EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "8"))
+# 语义跨会话检索的放行门槛：用户攒够这么多 episode 才开启语义检索（否则只注入最近 2 条）。
+# 从 8 下调到 5：实验（reports/rag_diagnosis_phase12_findings.md）显示个性化收益在闸门一开即吃满，
+# 深度 3-5 检索仍近乎满分（recall@3≈0.88），8 无额外收益、只让用户多等几轮才被个性化。
+EPISODE_SEMANTIC_MIN_COUNT = int(os.environ.get("EPISODE_SEMANTIC_MIN_COUNT", "5"))
 EPISODE_SEMANTIC_TOP_K = int(os.environ.get("EPISODE_SEMANTIC_TOP_K", "3"))
 EPISODE_INDEX_DIR = os.environ.get(
   "EPISODE_INDEX_DIR",
